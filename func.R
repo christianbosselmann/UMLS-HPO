@@ -1,5 +1,71 @@
 # helper functions for HPO analysis
 
+### visualize relative term frequency as enrichment plot
+#' @param data data.frame of Surgery, ConceptID (UMLS), term (HPO), and two groups to compare (TRUE; FALSE)
+#' @param ontology HPO ontologyIndex object
+#' @return res list of data.frame and plot object
+enrichmentPlot <- function(data,
+                           ontology){
+  
+  # object to return
+  res <- list()
+  
+  # read term names from ontologyIndex object
+  desc_map <- tibble(term = ontology$id,
+                     description = ontology$name)
+  
+  # reshape to dataframe of terms and columns Y/N for term count in group/!group
+  df_group <- data %>% 
+    group_by(term) %>%
+    count(group) %>%
+    pivot_wider(names_from = group, values_from = n) %>%
+    rename(N = `FALSE`, Y = `TRUE`) %>%
+    replace(is.na(.), 0)
+  
+  # add in term descriptions for graph
+  df_group <- left_join(df_group, desc_map, by = "term")
+  
+  # data characteristics
+  Y_tot <- max(df_group$Y) # total number of observations in group
+  N_tot <- max(df_group$N) # total number of observations in !group
+  n_tests <- nrow(df_group) # number of multiple tests
+  
+  # plot
+  concept_vis_input.df3 <- df_group %>% 
+    mutate(Y_out = Y_tot-Y,
+           N_out = N_tot-N) %>% 
+    mutate(pvalue = fish_test_it(Y,Y_out,N,N_out,"pvalue"),
+           odds = fish_test_it(Y,Y_out,N,N_out,"odds"),
+           freq1 = Y/Y_tot,
+           freq2 = N/N_tot,
+           color_sig = ifelse(p.adjust(pvalue, "bonferroni") < 1e-5, "<", ">"),
+           size_sel = -log10(pvalue)*4)
+  
+  res$data <- concept_vis_input.df3
+  
+  max_freq <- c(concept_vis_input.df3$freq1, concept_vis_input.df3$freq2) %>% max() 
+  
+  top_sig <- head(sort(concept_vis_input.df3$pvalue, decreasing = FALSE), n = 20) # n of top p-values to label
+  
+  res$plot <- concept_vis_input.df3 %>% 
+    mutate(expcat_text = ifelse(pvalue %in% top_sig, description, NA)) %>% # label only those with 20 lowest p values
+    ggplot(aes(x = freq2, y = freq1, color = color_sig)) +
+    geom_point(aes(size = size_sel), show.legend = FALSE) +
+    theme_classic(base_size = 20) +
+    # coord_fixed(xlim = c(0, 0.25), ylim = c(0, 0.25)) +
+    coord_cartesian(xlim = c(0, max_freq), ylim = c(0, max_freq)) +
+    geom_abline(slope = 1, linetype = "dashed") +
+    scale_color_manual(values = c("red", "black")) +
+    labs(y = "Case",
+         x = "Control") +
+    geom_label_repel(aes(label = expcat_text), color = "black", max.overlaps = 13) +
+    theme(axis.text = element_text(color = "black"),
+          axis.line = element_line(color = "black")) +
+    guides(color = "none")
+  
+  return(res)
+}
+
 ### visualize kernel matrix
 #' @param K kernel matrix to be visualized
 #' @param hc.order boolean, see hc.order attribute of ggcorrplot fn
