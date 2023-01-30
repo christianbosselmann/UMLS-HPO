@@ -16,9 +16,8 @@ ont_hpo <- get_ontology("hp.obo.txt",
                         propagate_relationships = "is_a", 
                         extract_tags = "everything")
 
-# data
-# diagnosis from all encounters for two years before day of most recent surgery
-df <- read_csv("SurgeryData.csv") %>%
+# data: diagnosis from all encounters for two years before day of most recent surgery
+df <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/SurgeryData.csv") %>%
   select(Surgery, ConceptID)
 
 # manual map
@@ -90,7 +89,6 @@ ggplot(df_stats, aes(x = reorder(surgery, -n_uniq), y = n_uniq, fill = surgery))
   xlab("") +
   theme_classic() +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
-
 # note: abs/unique can be a surrogate for phenotypic complexity, i.e. how well characterized
 
 ### FIGURE 1: TLE vs ExTLE ----------------------------------------------------
@@ -104,7 +102,7 @@ df_map <- df_map %>%
   filter(Surgery %in% c("Temporal lobectomy",
                         "Frontal lobectomy",
                         "Central resection",
-                        "Cental resection", # sic
+                        "Cental resection", 
                         "Extratemporal resection",
                         "Insular resection",
                         "Occipital lobectomy",
