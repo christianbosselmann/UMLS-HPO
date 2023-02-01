@@ -231,7 +231,7 @@ for(i in 1:length(ls_mapped)){
   df_group <- df_group %>%
     ungroup() %>%
     select(term, description, pvalue) %>% 
-    slice_min(order_by = pvalue, n = 10, with_ties = FALSE)
+    slice_min(order_by = pvalue, n = 8, with_ties = FALSE) # non-trivial to choose
   
   # # filter: by IC
   # df_group <- df_group %>%
@@ -251,11 +251,16 @@ seq <- seq(1, length(breaks_binned), 1)
 breaks_mean <- sapply(seq, function(i) {mean(breaks_binned[i:(i+1)])}) %>%
   na.omit
 
+# filter: for each term, keep only the bin with the highest p-value
 names(ls_pvalues) <- breaks_mean
 
 df_pvalues <- ls_pvalues %>%
   rbindlist(idcol = "bin") %>%
   mutate(bin = as.numeric(bin))
+
+df_pvalues <- df_pvalues %>%
+  group_by(term) %>% 
+  slice_min(order_by = pvalue, n = 1)
 
 # point plot: log10(pvalue) over age bins
 palette <- colorRampPalette(RColorBrewer::brewer.pal(9, name = 'RdBu'))(length(breaks_mean))
@@ -266,8 +271,10 @@ df_pvalues %>%
   geom_label_repel(aes(label = description), size = 3,
                    color = "black", max.overlaps = 10,
                    force_pull = 0.5) +
-  scale_fill_manual(values = palette, "Mean age (years)",
-                    breaks = breaks_mean, labels = format(round(breaks_mean, 3), nsmall = 1),
+  scale_fill_manual(values = palette, 
+                    name = "Mean age (years)",
+                    breaks = breaks_mean, 
+                    labels = format(round(breaks_mean, 3), nsmall = 1),
                     guide = guide_legend(override.aes = list(label = ""))) +
   theme_classic() +
   xlab("Age (years)")
@@ -280,5 +287,3 @@ df_binned %>%
   ylab("") +
   labs(fill = "Age bins") +
   theme_classic()
-
-### TODO refine

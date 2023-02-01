@@ -45,7 +45,7 @@ enrichmentPlot <- function(data,
   
   max_freq <- c(concept_vis_input.df3$freq1, concept_vis_input.df3$freq2) %>% max() 
   
-  top_sig <- head(sort(concept_vis_input.df3$pvalue, decreasing = FALSE), n = 20) # n of top p-values to label
+  top_sig <- head(sort(concept_vis_input.df3$pvalue, decreasing = FALSE), n = 15) # n of top p-values to label
   
   res$plot <- concept_vis_input.df3 %>% 
     mutate(expcat_text = ifelse(pvalue %in% top_sig, description, NA)) %>% # label only those with 20 lowest p values
@@ -58,7 +58,7 @@ enrichmentPlot <- function(data,
     scale_color_manual(values = c("red", "black")) +
     labs(y = "Case",
          x = "Control") +
-    geom_label_repel(aes(label = expcat_text), color = "black", max.overlaps = 13) +
+    geom_label_repel(aes(label = expcat_text), color = "black", max.overlaps = 12, size = 3, force_pull = 0.5) +
     theme(axis.text = element_text(color = "black"),
           axis.line = element_line(color = "black")) +
     guides(color = "none")

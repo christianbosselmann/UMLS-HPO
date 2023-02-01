@@ -114,8 +114,12 @@ df_map <- df_map %>%
 
 # run fn
 res <- enrichmentPlot(df_map, ont_hpo)
-# note: coord system can be forced:
-# res$plot + coord_fixed(xlim = c(0, 0.25), ylim = c(0, 0.25))
+
+# note: coord system can be forced
+res$plot + 
+  coord_fixed(xlim = c(0, 0.3), ylim = c(0, 0.3)) +
+  ggtitle("TLE vs ExTLE") +
+  theme(plot.title = element_text(hjust = 0.5))
 
 ### FIGURE 2: VNS vs Resection -------------------------------------------------
 # join
@@ -153,6 +157,11 @@ df_map <- df_map %>%
 # run fn
 res <- enrichmentPlot(df_map, ont_hpo)
 
+res$plot + 
+  coord_fixed(xlim = c(0, 0.33), ylim = c(0, 0.33)) +
+  ggtitle("VNS vs Resection") +
+  theme(plot.title = element_text(hjust = 0.5))
+
 ### FIGURE 3: Hemispherectomy vs Resection--------------------------------------
 # join
 df_map <- left_join(df, hpo_map, by = "ConceptID") %>%
@@ -176,6 +185,11 @@ df_map <- df_map %>%
 
 # run fn
 res <- enrichmentPlot(df_map, ont_hpo)
+
+res$plot + 
+  coord_fixed(xlim = c(0, 0.5), ylim = c(0, 0.5)) +
+  ggtitle("Hemispherectomy vs Resection") +
+  theme(plot.title = element_text(hjust = 0.5))
 
 ### FIGURE 4: Callosotomy vs Resection -----------------------------------------
 # join
@@ -201,6 +215,11 @@ df_map <- df_map %>%
 # run fn
 res <- enrichmentPlot(df_map, ont_hpo)
 
+res$plot + 
+  coord_fixed(xlim = c(0, 0.8), ylim = c(0, 0.8)) +
+  ggtitle("Callosotomy vs Resection") +
+  theme(plot.title = element_text(hjust = 0.5))
+
 ### FIGURE 5: Multilobar vs TLE ------------------------------------------------
 # join
 df_map <- left_join(df, hpo_map, by = "ConceptID") %>%
@@ -218,6 +237,11 @@ df_map <- df_map %>%
 # run fn
 res <- enrichmentPlot(df_map, ont_hpo)
 
+res$plot + 
+  coord_fixed(xlim = c(0, 0.33), ylim = c(0, 0.33)) +
+  ggtitle("Multilobar vs TLE") +
+  theme(plot.title = element_text(hjust = 0.5))
+
 ### FIGURE 6: VNS in vs VNS out ------------------------------------------------
 # join
 df_map <- left_join(df, hpo_map, by = "ConceptID") %>%
@@ -234,3 +258,56 @@ df_map <- df_map %>%
 
 # run fn
 res <- enrichmentPlot(df_map, ont_hpo)
+
+res$plot + 
+  coord_fixed(xlim = c(0, 0.33), ylim = c(0, 0.33)) +
+  ggtitle("VNS in vs VNS out") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+### AGE STATS -----------------------------------------------------------------
+# data: age per surgery
+df_age <- readxl::read_excel("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/SurgeryAges.xlsx")
+
+# clean up
+df_age <- df_age %>%
+  rename(unit = `M/Y?`, surgery = `OR Type`, age = Age) %>%
+  mutate(unit = recode(unit, 
+                      "y" = "Y",
+                      "T" = "M", # round day/week old patients to one month
+                      "W" = "M")) %>%
+  filter(unit != 0) %>%
+  drop_na() # drop n = 2 missing data
+
+df_age <- df_age %>%
+  mutate(age = as.numeric(str_extract(age, "(\\d)+"))) # remove some date units, make numeric
+
+df_age[df_age$unit == "M",]$age <- df_age[df_age$unit == "M",]$age * (1/12) # months to years
+
+df_age <- df_age %>%
+  select(-unit) # drop unit column, all ages are now in years
+
+# plot age distribution per surgery
+var_filter <- "Multilobar resection"
+
+p1 <- df_age %>%
+  filter(surgery == var_filter) %>%
+  ggplot(aes(x = age)) +
+  geom_density(fill = "#ca0020", color = "#ca0020", alpha = 0.8) +
+  theme_classic() +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  ylab("Density") +
+  xlab("Age (years)") +
+  ggtitle(paste0("Age distribution:", var_filter, sep = " "))
+
+# summary stats of age distribution per surgery
+p1_summ <- df_age %>%
+  filter(surgery == var_filter) %>%
+  summarize(mean = mean(age), sd = sd(age))
+
+p1 +
+  geom_vline(xintercept = p1_summ$mean) +
+  geom_vline(xintercept = p1_summ$mean - p1_summ$sd, linetype = "dashed") +
+  geom_vline(xintercept = p1_summ$mean + p1_summ$sd, linetype = "dashed")
+
+
