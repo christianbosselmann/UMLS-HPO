@@ -77,11 +77,19 @@ df_person <- df_raw %>%
 
 ls_col = c("Gender", "Ethnicity", "ProcAge", "min_age", "median_age", "max_age")
 
-df_person %>%  
-  summary_factorlist("GENEPOS_comb", ls_col, p = TRUE, na_include = TRUE) %>%
+tbl1 <- df_person %>%  
+  mutate(Gender = recode(Gender, 
+                         "C0086582" = "Male",
+                         "C0086287" = "Female")) %>%
+  mutate(Ethnicity = recode(Ethnicity, 
+                            "C1518424" = "Not Hispanic or Latino",
+                            "C1549625" = "Unknown",
+                            "C5441846" = "Hispanic or Latino",
+                            "None" = "Unknown")) %>% 
+  summary_factorlist("GENEPOS_comb", ls_col, p = TRUE, na_include = TRUE)  %>%
   knitr::kable("html") %>%
-  kable_styling(bootstrap_options = c("striped", "hover")) %>%
-  save_kable("out/longitudinal_demographic_tbl.pdf")
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE) %>%
+  save_kable("out/longitudinal_demographic_tbl.png", density = 900, zoom = 1.5)
 
 # flag plot of encounters over age
 df %>%
