@@ -161,15 +161,7 @@ breaks_binned <- levels(df_binned$bin) %>%
   sapply(., function(x) {gsub("\\,", " ", x)}) %>%
   parse_number()
 
-palette <- colorRampPalette(RColorBrewer::brewer.pal(9, name = 'Set1'))(length(breaks_binned))
-
-df_binned %>%
-  ggplot(aes(x = ContactAge, fill = bin)) + 
-  geom_histogram(breaks = c(breaks_binned, max(df_binned$ContactAge))) +
-  xlab("Age at contact") +
-  ylab("") +
-  labs(fill = "Age bins") +
-  theme_classic()
+breaks_binned <- c(breaks_binned, max(df_binned$ContactAge))
 
 # split into age bins and print unique concepts per bin as sanity-check
 ls_binned <- df_binned %>% 
@@ -205,52 +197,81 @@ ic <- get_term_info_content(ontology = ont_hpo, term_sets = ls_terms)
 ic <- tibble(term = names(ic),
              ic = ic)
 
-# reshape each bin to unique HPO terms and count of gene positive (Y) and negative (N) patients
+# reshape each bin to unique HPO terms
+# count of gene positive (Y) and negative (N) patients
+# run Fisher's test
+# get n most significant terms per bin
 # TODO consider whether to do distinct patient-term pairs per bin
-df_group <- ls_mapped[[1]] %>%
-  select(PatientId, GENEPOS_comb, prop_terms) %>%
-  unnest(cols = c(prop_terms)) %>%
-  group_by(prop_terms, GENEPOS_comb) %>%
-  count(prop_terms) %>%
-  pivot_wider(names_from = GENEPOS_comb, values_from = n) %>%
-  replace(is.na(.), 0) %>%
-  rename(term = prop_terms)
-
-# merge in description
-df_group <- left_join(df_group, desc_map, by = "term")
-
-# df_group can also be used for enrichment plots
-df_group <- df_group %>% 
-  mutate(Y_out = max(df_group$Y)-Y,
-         N_out = max(df_group$N)-N) %>% 
-  mutate(pvalue = fish_test_it(Y, Y_out, N, N_out, "pvalue"),
-         odds = fish_test_it(Y, Y_out, N, N_out, "odds"),
-         freq1 = Y/max(df_group$Y),
-         freq2 = N/max(df_group$N),
-         color_sig = ifelse(p.adjust(pvalue, "holm") < 0.05, "<", ">"),
-         size_sel = -log10(pvalue)*4)
-
-# get best p-values for each bin for longitudinal plot
-df_group <- df_group %>%
-  ungroup() %>%
-  select(term, description, pvalue) %>% slice_min(order_by = pvalue, n = 10, with_ties = FALSE)
-
-# TODO filter: by ancestors or by IC
-df_group %>%
-  left_join(ic, by = "term")
-
-tmp <- list()
-for(i in 1:nrow(df_group)){
-    # define a term of interest
-    tmp_term <- df_group$term[[i]] 
-    
-    # are the other terms ancestors of the term of interest?
-    tmp_anc <- df_group$term[-i] %nin% ont_hpo$ancestors[[tmp_term]] 
-    
-    # keep the first term
-    tmp_anc <- c(TRUE, tmp_anc)
-    
-    # if FALSE (ancestor), remove term - it does not offer additional information
-    tmp[[i]] <- df_group[tmp_anc,]
+ls_pvalues <- list()
+for(i in 1:length(ls_mapped)){
+  df_group <- ls_mapped[[i]] %>%
+    select(PatientId, GENEPOS_comb, prop_terms) %>%
+    unnest(cols = c(prop_terms)) %>%
+    group_by(prop_terms, GENEPOS_comb) %>%
+    count(prop_terms) %>%
+    pivot_wider(names_from = GENEPOS_comb, values_from = n) %>%
+    replace(is.na(.), 0) %>%
+    rename(term = prop_terms)
+  
+  # merge in description
+  df_group <- left_join(df_group, desc_map, by = "term")
+  
+  # df_group can also be used for enrichment plots
+  df_group <- df_group %>% 
+    mutate(Y_out = max(df_group$Y)-Y,
+           N_out = max(df_group$N)-N) %>% 
+    mutate(pvalue = fish_test_it(Y, Y_out, N, N_out, "pvalue"),
+           odds = fish_test_it(Y, Y_out, N, N_out, "odds"),
+           freq1 = Y/max(df_group$Y),
+           freq2 = N/max(df_group$N),
+           color_sig = ifelse(p.adjust(pvalue, "holm") < 0.05, "<", ">"),
+           size_sel = -log10(pvalue)*4)
+  
+  # get n best p-values for each bin for longitudinal plot
+  df_group <- df_group %>%
+    ungroup() %>%
+    select(term, description, pvalue) %>% slice_min(order_by = pvalue, n = 2, with_ties = FALSE)
+  
+  # TODO filter: by ancestors or by IC
+  df_group %>%
+    left_join(ic, by = "term")
+  
+  # return
+  ls_pvalues[[i]] <- df_group
 }
 
+# fix bin to correspond to mean age of bin for graph
+seq <- seq(1, length(breaks_binned), 1)
+breaks_mean <- sapply(seq, function(i) {mean(breaks_binned[i:(i+1)])}) %>%
+  na.omit
+
+names(ls_pvalues) <- breaks_mean
+
+df_pvalues <- ls_pvalues %>%
+  rbindlist(idcol = "bin") %>%
+  mutate(bin = as.numeric(bin))
+
+# point plot: log10(pvalue) over age bins
+palette <- colorRampPalette(RColorBrewer::brewer.pal(9, name = 'RdBu'))(length(breaks_mean))
+
+df_pvalues %>%
+  ggplot(aes(x = bin, y = -log10(pvalue), fill = factor(bin, levels = breaks_mean))) +
+  geom_point() +
+  geom_label_repel(aes(label = description), size = 3,
+                   color = "black", max.overlaps = 10,
+                   force_pull = 0.5) +
+  scale_fill_manual(values = palette, "Mean age (years)",
+                    guide = guide_legend(override.aes = list(label = ""))) +
+  theme_classic() +
+  xlab("Age (years)")
+
+# histogram: very simple way to show bin distribution
+df_binned %>%
+  ggplot(aes(x = ContactAge, fill = bin)) + 
+  geom_histogram(breaks = breaks_binned) +
+  xlab("Age at contact") +
+  ylab("") +
+  labs(fill = "Age bins") +
+  theme_classic()
+
+### TODO refine
