@@ -230,11 +230,17 @@ for(i in 1:length(ls_mapped)){
   # get n best p-values for each bin for longitudinal plot
   df_group <- df_group %>%
     ungroup() %>%
-    select(term, description, pvalue) %>% slice_min(order_by = pvalue, n = 2, with_ties = FALSE)
+    select(term, description, pvalue) %>% 
+    slice_min(order_by = pvalue, n = 10, with_ties = FALSE)
   
-  # TODO filter: by ancestors or by IC
-  df_group %>%
-    left_join(ic, by = "term")
+  # # filter: by IC
+  # df_group <- df_group %>%
+  #   left_join(ic, by = "term") %>%
+  #   slice_max(order_by = ic, n = 2, with_ties = FALSE)
+  
+  # filter: by ancestors
+  min_set <- ontologyIndex::minimal_set(ont_hpo, df_group$term)
+  df_group <- df_group[df_group$term %in% min_set, ]
   
   # return
   ls_pvalues[[i]] <- df_group
@@ -261,6 +267,7 @@ df_pvalues %>%
                    color = "black", max.overlaps = 10,
                    force_pull = 0.5) +
   scale_fill_manual(values = palette, "Mean age (years)",
+                    breaks = breaks_mean, labels = format(round(breaks_mean, 3), nsmall = 1),
                     guide = guide_legend(override.aes = list(label = ""))) +
   theme_classic() +
   xlab("Age (years)")
