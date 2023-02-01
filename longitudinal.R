@@ -192,6 +192,19 @@ for(i in 1:length(ls_binned)){
   ls_mapped[[i]] <- left_join(ls_mapped[[i]], prop_map, by = "term")
 }
 
+# get information content (IC)
+ls_terms <- ls_mapped %>%
+  rbindlist() %>%
+  select(PatientId, prop_terms) %>%
+  .$prop_terms %>%
+  unlist() %>%
+  unique()
+
+ic <- get_term_info_content(ontology = ont_hpo, term_sets = ls_terms)
+
+ic <- tibble(term = names(ic),
+             ic = ic)
+
 # reshape each bin to unique HPO terms and count of gene positive (Y) and negative (N) patients
 # TODO consider whether to do distinct patient-term pairs per bin
 df_group <- ls_mapped[[1]] %>%
@@ -202,6 +215,9 @@ df_group <- ls_mapped[[1]] %>%
   pivot_wider(names_from = GENEPOS_comb, values_from = n) %>%
   replace(is.na(.), 0) %>%
   rename(term = prop_terms)
+
+# merge in description
+df_group <- left_join(df_group, desc_map, by = "term")
 
 # df_group can also be used for enrichment plots
 df_group <- df_group %>% 
@@ -214,9 +230,27 @@ df_group <- df_group %>%
          color_sig = ifelse(p.adjust(pvalue, "holm") < 0.05, "<", ">"),
          size_sel = -log10(pvalue)*4)
 
-# TODO: get best p-values for each bin for longitudinal plot
+# get best p-values for each bin for longitudinal plot
+df_group <- df_group %>%
+  ungroup() %>%
+  select(term, description, pvalue) %>% slice_min(order_by = pvalue, n = 10, with_ties = FALSE)
 
+# TODO filter: by ancestors or by IC
+df_group %>%
+  left_join(ic, by = "term")
 
-
-
+tmp <- list()
+for(i in 1:nrow(df_group)){
+    # define a term of interest
+    tmp_term <- df_group$term[[i]] 
+    
+    # are the other terms ancestors of the term of interest?
+    tmp_anc <- df_group$term[-i] %nin% ont_hpo$ancestors[[tmp_term]] 
+    
+    # keep the first term
+    tmp_anc <- c(TRUE, tmp_anc)
+    
+    # if FALSE (ancestor), remove term - it does not offer additional information
+    tmp[[i]] <- df_group[tmp_anc,]
+}
 
