@@ -8,7 +8,6 @@ librarian::shelf(tidyverse,
                  data.table,
                  scales,
                  finalfit,
-                 kable,
                  kableExtra)
 
 # helper fn

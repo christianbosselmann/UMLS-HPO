@@ -30,7 +30,7 @@ enrichmentPlot <- function(data,
   N_tot <- max(df_group$N) # total number of observations in !group
   n_tests <- nrow(df_group) # number of multiple tests
   
-  # plot
+  # setup plot
   concept_vis_input.df3 <- df_group %>% 
     mutate(Y_out = Y_tot-Y,
            N_out = N_tot-N) %>% 
@@ -38,17 +38,20 @@ enrichmentPlot <- function(data,
            odds = fish_test_it(Y,Y_out,N,N_out,"odds"),
            freq1 = Y/Y_tot,
            freq2 = N/N_tot,
-           color_sig = ifelse(p.adjust(pvalue, "bonferroni") < 1e-5, "<", ">"),
-           size_sel = -log10(pvalue)*4)
+           color_sig = ifelse(p.adjust(pvalue, "bonferroni") < 0.05, "<", ">"),
+           size_sel = -log10(pvalue)*4) %>%
+    filter(freq1 > 0.05 | freq2 > 0.05) # minimum term frequency filter
   
   res$data <- concept_vis_input.df3
   
   max_freq <- c(concept_vis_input.df3$freq1, concept_vis_input.df3$freq2) %>% max() 
   
-  top_sig <- head(sort(concept_vis_input.df3$pvalue, decreasing = FALSE), n = 15) # n of top p-values to label
+  # n of top p-values to label
+  top_sig <- head(sort(concept_vis_input.df3$pvalue, decreasing = FALSE), n = 15) 
   
-  res$plot <- concept_vis_input.df3 %>% 
-    mutate(expcat_text = ifelse(pvalue %in% top_sig, description, NA)) %>% # label only those with 20 lowest p values
+  # plot
+  res$plot <- concept_vis_input.df3 %>%
+    mutate(expcat_text = ifelse(pvalue %in% top_sig, description, NA)) %>%
     ggplot(aes(x = freq2, y = freq1, color = color_sig)) +
     geom_point(aes(size = size_sel), show.legend = FALSE) +
     theme_classic(base_size = 20) +
@@ -58,7 +61,7 @@ enrichmentPlot <- function(data,
     scale_color_manual(values = c("red", "black")) +
     labs(y = "Case",
          x = "Control") +
-    geom_label_repel(aes(label = expcat_text), color = "black", max.overlaps = 12, size = 3, force_pull = 0.5) +
+    geom_label_repel(aes(label = expcat_text), color = "black", max.overlaps = 8, size = 3, force_pull = 0.4) +
     theme(axis.text = element_text(color = "black"),
           axis.line = element_line(color = "black")) +
     guides(color = "none")

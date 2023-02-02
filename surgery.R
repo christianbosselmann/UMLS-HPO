@@ -20,6 +20,10 @@ ont_hpo <- get_ontology("hp.obo.txt",
 df <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/SurgeryData.csv") %>%
   select(Surgery, ConceptID)
 
+# data: can also use an age-matched subset between 17-48 yo (mean±sd TLE age)
+df <- readxl::read_excel("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/SurgeryData17_48.xlsx") %>%
+  select(Surgery, ConceptID)
+
 # manual map
 hpo_map <- lapply(ont_hpo$xref, function(x){
   x <- x[x %like% "UMLS:"]
@@ -242,26 +246,39 @@ res$plot +
   ggtitle("Multilobar vs TLE") +
   theme(plot.title = element_text(hjust = 0.5))
 
-### FIGURE 6: VNS in vs VNS out ------------------------------------------------
+### FIGURE 6: TMP --------------------------------------------------------------
 # join
 df_map <- left_join(df, hpo_map, by = "ConceptID") %>%
-  rename(term = name) %>%
+  rename(term = name, surgery = Surgery) %>%
   na.omit
+
+# fix label
+df_map <- df_map %>% mutate(surgery = ifelse(surgery %in% c("Temporal lobectomy"), "Temporal lobectomy",
+                        ifelse(surgery %in% c("Frontal lobectomy", "Occipital lobectomy", "Parietal lobectomy"), "Extratemporal lobectomy",
+                               ifelse(surgery %in% c("Insular resection", "Central resection", "Multilobar resection"), "Resection, other",
+                                      ifelse(surgery %in% c("Laser ablation"), "Laser ablation",
+                                             ifelse(surgery %in% c("Hemispherectomy"), "Hemispherectomy",
+                                                    ifelse(surgery %in% c("Callosotomy"), "Callosotomy",
+                                                           ifelse(surgery %in% c("VNS", "VNS insertion", "VNS removal", "VNS revision"), "VNS",
+                                                                  ifelse(surgery %in% c("DBS", "Generator implantation", "Explantation of NeuroPace", "NeuroPace"), "Neurostimulation, other", 
+                                                                         ifelse(surgery %in% c("SD grids", "Other - Plates", "SEEG"), "SD/SEEG",
+                                                                                ifelse(surgery %in% c("Other", "Other - Shunt", "Other-Ventriculostomy"), "Other", "Other"
+                                                                                )))))))))))
 
 # define groups
 df_map <- df_map %>%
-  filter(Surgery %in% c("VNS insertion",
-                        "VNS removal"))
+  filter(surgery %in% c("Temporal lobectomy",
+                        "Extratemporal lobectomy"))
 
 df_map <- df_map %>%
-  mutate(group = Surgery %in% c("VNS removal"))
+  mutate(group = surgery %in% c("Temporal lobectomy"))
 
 # run fn
 res <- enrichmentPlot(df_map, ont_hpo)
 
 res$plot + 
-  coord_fixed(xlim = c(0, 0.33), ylim = c(0, 0.33)) +
-  ggtitle("VNS in vs VNS out") +
+  coord_fixed(xlim = c(0, 0.25), ylim = c(0, 0.25)) +
+  ggtitle("TLE vs. ExTLE") +
   theme(plot.title = element_text(hjust = 0.5))
 
 ### AGE STATS -----------------------------------------------------------------
@@ -287,7 +304,7 @@ df_age <- df_age %>%
   select(-unit) # drop unit column, all ages are now in years
 
 # plot age distribution per surgery
-var_filter <- "Multilobar resection"
+var_filter <- "Temporal lobectomy"
 
 p1 <- df_age %>%
   filter(surgery == var_filter) %>%
