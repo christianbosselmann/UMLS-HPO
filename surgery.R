@@ -75,7 +75,7 @@ df_stats <- df_stats %>% mutate(surgery = ifelse(surgery %in% c("Temporal lobect
   group_by(surgery) %>%
   dplyr::summarise(n_abs = sum(terms_absolute), n_uniq = sum(terms_unique))
 
-# plot
+# histogram: absolute number of ConceptIDs by surgery type
 ggplot(df_stats, aes(x = reorder(surgery, -n_abs), y = n_abs, fill = surgery)) + 
   geom_bar(stat = "identity") +
   coord_cartesian(ylim = c(0, max(df_stats$n_abs)), expand = FALSE) +
@@ -85,6 +85,7 @@ ggplot(df_stats, aes(x = reorder(surgery, -n_abs), y = n_abs, fill = surgery)) +
   theme_classic() +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
 
+# histogram: unique number of ConceptIDs by surgery type
 ggplot(df_stats, aes(x = reorder(surgery, -n_uniq), y = n_uniq, fill = surgery)) + 
   geom_bar(stat = "identity") +
   coord_cartesian(ylim = c(0, max(df_stats$n_uniq)), expand = FALSE) +
@@ -94,6 +95,28 @@ ggplot(df_stats, aes(x = reorder(surgery, -n_uniq), y = n_uniq, fill = surgery))
   theme_classic() +
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
 # note: abs/unique can be a surrogate for phenotypic complexity, i.e. how well characterized
+
+df_stats %>%
+  mutate(rel_uniq = n_uniq/max(n_uniq), rel_abs = n_abs/max(n_abs)) %>%
+  ggplot(aes(x = rel_uniq, y = rel_abs, color = surgery)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, lty = 2) +
+  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+  scale_fill_brewer(palette = "Paired") +
+  xlab("Unique concepts (n)") +
+  ylab("All concepts (n)") +
+  labs(color = "Surgery") + 
+  theme_classic()
+
+### REGRESSION ANALYSIS -------------------------------------------------------
+# aim: find HPO terms that are associated with age at surgery
+df_map <- left_join(df, hpo_map, by = "ConceptID") %>%
+  rename(term = name) %>%
+  na.omit
+
+df_age <- readxl::read_excel("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/SurgeryAges.xlsx")
+
+
 
 ### FIGURE 1: TLE vs ExTLE ----------------------------------------------------
 # join
