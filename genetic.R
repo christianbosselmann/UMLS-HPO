@@ -328,3 +328,77 @@ df_binned %>%
   ylab("") +
   labs(fill = "Age bins") +
   theme_classic()
+
+### SPECIFIC GENE SUBGROUPS ---------------------------------------------------
+# data: get list of MRNs per patient
+df_cdkl5 <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/cdkl5_genetic.csv")
+df_scn1a <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/scn1a_genetic.csv")
+
+# preprocessing as above
+df_genes <- df_raw %>%
+  mutate(cdkl5 = .$MedicalRecordNumber %in% df_cdkl5$MRN) %>%
+  mutate(scn1a = .$MedicalRecordNumber %in% df_scn1a$PAT_MRN_ID) %>%
+  select(PatientId, # patient ID
+         ConceptID, # UMLS code for encounter
+         GENEPOS_comb, # binary vector: non-genetic vs likely genetic patient
+         ContactAge, # relative age at encounter
+         ProcAge, # age at epilepsy CPT
+         cdkl5, # bool, cdkl5?
+         scn1a # bool, scn1a?
+  ) %>%
+  group_by(PatientId) %>%
+  arrange(desc(ContactAge)) %>%
+  fill(ContactAge, .direction = c("up")) %>%
+  na.omit
+
+# fix group column
+df_genes <- df_genes %>%
+  mutate(status = 
+           ifelse(scn1a == TRUE, "scn1a", 
+                  ifelse(cdkl5 == TRUE, "cdkl5", 
+                         ifelse(GENEPOS_comb == "N", "nongenetic",
+                                ifelse(GENEPOS_comb == "Y", "genetic",
+                                       NA))))) %>%
+  select(PatientId, ConceptID, ContactAge, ProcAge, status)
+
+# map to HPO and propagate
+df_genes_mapped <- df_genes %>%
+  left_join(hpo_map, by = "ConceptID") %>%
+  rename(term = name) %>%
+  left_join(prop_map, by = "term") %>%
+  select(-term) %>%
+  rename(term = prop_terms) %>%
+  na.omit %>%
+  unnest(cols = c(term))
+
+# may also choose not to propagate to keep a clear signal
+# note: ggrepel does not handled propagated plots well; may need manual labels
+df_genes_mapped <- df_genes %>%
+  left_join(hpo_map, by = "ConceptID") %>%
+  rename(term = name) %>%
+  na.omit
+
+# SCN1A
+res <- df_genes_mapped %>%
+  filter(status %in% c("scn1a",
+                       "genetic")) %>%
+  mutate(group = status == "scn1a") %>%
+  enrichmentPlot(., ont_hpo) 
+
+res$plot + 
+  coord_fixed(xlim = c(0, 0.4), ylim = c(0, 0.4)) +
+  ggtitle("SCN1A vs Genetic") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# CDKL5
+res <- df_genes_mapped %>%
+  filter(status %in% c("cdkl5",
+                       "genetic")) %>%
+  mutate(group = status == "cdkl5") %>%
+  enrichmentPlot(., ont_hpo) 
+
+res$plot + 
+  coord_fixed(xlim = c(0, .33), ylim = c(0, .33)) +
+  ggtitle("CDKL5 vs Genetic") +
+  theme(plot.title = element_text(hjust = 0.5))
+

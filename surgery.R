@@ -115,8 +115,7 @@ df_map <- left_join(df, hpo_map, by = "ConceptID") %>%
   na.omit
 
 df_age <- readxl::read_excel("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/SurgeryAges.xlsx")
-
-
+# TODO
 
 ### FIGURE 1: TLE vs ExTLE ----------------------------------------------------
 # join
