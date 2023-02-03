@@ -386,25 +386,25 @@ df_genes_mapped <- df_genes_mapped[df_genes_mapped$term %in% min_set, ]
 # SCN1A
 res <- df_genes_mapped %>%
   filter(status %in% c("scn1a",
-                       "genetic")) %>% # can choose groups here
+                       "nongenetic")) %>% # can choose groups here
   mutate(group = status == "scn1a") %>%
   enrichmentPlot(., ont_hpo) 
 
 res$plot + 
-  coord_fixed(xlim = c(0, .8), ylim = c(0, .8)) +
-  ggtitle("SCN1A vs Genetic") +
+  coord_fixed(xlim = c(0, .2), ylim = c(0, .2)) +
+  ggtitle("SCN1A vs Nongenetic") +
   theme(plot.title = element_text(hjust = 0.5))
 
 # CDKL5
 res <- df_genes_mapped %>%
   filter(status %in% c("cdkl5",
-                       "genetic")) %>% 
+                       "nongenetic")) %>% 
   mutate(group = status == "cdkl5") %>%
   enrichmentPlot(., ont_hpo) 
 
 res$plot + 
   coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
-  ggtitle("CDKL5 vs Genetic") +
+  ggtitle("CDKL5 vs Nongenetic") +
   theme(plot.title = element_text(hjust = 0.5))
 
 ### SUBGROUPS: LONGITUDINAL ----------------------------------------------------
