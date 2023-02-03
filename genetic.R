@@ -329,7 +329,7 @@ df_binned %>%
   labs(fill = "Age bins") +
   theme_classic()
 
-### SPECIFIC GENE SUBGROUPS ---------------------------------------------------
+### SUBGROUPS: PREPROCESSING ---------------------------------------------------
 # data: get list of MRNs per patient
 df_cdkl5 <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/cdkl5_genetic.csv")
 df_scn1a <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/scn1a_genetic.csv")
@@ -371,34 +371,180 @@ df_genes_mapped <- df_genes %>%
   na.omit %>%
   unnest(cols = c(term))
 
-# may also choose not to propagate to keep a clear signal
-# note: ggrepel does not handled propagated plots well; may need manual labels
-df_genes_mapped <- df_genes %>%
-  left_join(hpo_map, by = "ConceptID") %>%
-  rename(term = name) %>%
-  na.omit
+# # may also choose not to propagate to keep a clear signal
+# df_genes_mapped <- df_genes %>%
+#   left_join(hpo_map, by = "ConceptID") %>%
+#   rename(term = name) %>%
+#   na.omit
 
+# optional: filter by ancestor
+min_set <- ontologyIndex::minimal_set(ont_hpo, df_genes_mapped$term)
+df_genes_mapped <- df_genes_mapped[df_genes_mapped$term %in% min_set, ]
+
+### SUBGROUPS: ENRICHMENT PLOTS ------------------------------------------------
+# note: ggrepel does not handled propagated plots well; may need manual labels
 # SCN1A
 res <- df_genes_mapped %>%
   filter(status %in% c("scn1a",
-                       "genetic")) %>%
+                       "genetic")) %>% # can choose groups here
   mutate(group = status == "scn1a") %>%
   enrichmentPlot(., ont_hpo) 
 
 res$plot + 
-  coord_fixed(xlim = c(0, 0.4), ylim = c(0, 0.4)) +
+  coord_fixed(xlim = c(0, .8), ylim = c(0, .8)) +
   ggtitle("SCN1A vs Genetic") +
   theme(plot.title = element_text(hjust = 0.5))
 
 # CDKL5
 res <- df_genes_mapped %>%
   filter(status %in% c("cdkl5",
-                       "genetic")) %>%
+                       "genetic")) %>% 
   mutate(group = status == "cdkl5") %>%
   enrichmentPlot(., ont_hpo) 
 
 res$plot + 
-  coord_fixed(xlim = c(0, .33), ylim = c(0, .33)) +
+  coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
   ggtitle("CDKL5 vs Genetic") +
   theme(plot.title = element_text(hjust = 0.5))
+
+### SUBGROUPS: LONGITUDINAL ----------------------------------------------------
+# create age bins
+df_genes_binned <- df_genes %>%
+  ungroup() %>%
+  mutate(bin = cut_number(ContactAge, n = 10))
+
+# hacky way to get numeric breaks for histogram
+breaks_binned <- levels(df_genes_binned$bin) %>%
+  sapply(., function(x) {gsub("\\,", " ", x)}) %>%
+  parse_number()
+
+breaks_binned <- c(breaks_binned, max(df_genes_binned$ContactAge))
+
+# split into age bins and print unique concepts per bin as sanity-check
+ls_genes_binned <- df_genes_binned %>% 
+  split(.$bin)
+
+lapply(ls_genes_binned, function(x) length(unique(x$ConceptID))) %>%
+  unlist() %>%
+  tibble(mean = mean(.), sd = sd(.), min = min(.), max = max(.)) %>%
+  select(-.) %>%
+  tail(1) %>%
+  print()
+
+# for each bin, map to HPO terms, then map to propagated HPO terms
+ls_genes_mapped <- list()
+for(i in 1:length(ls_genes_binned)){
+  ls_genes_mapped[[i]] <- left_join(ls_genes_binned[[i]], hpo_map, by = "ConceptID") %>%
+    rename(term = name) %>%
+    na.omit()
+  
+  ls_genes_mapped[[i]] <- left_join(ls_genes_mapped[[i]], prop_map, by = "term")
+}
+
+# # get information content (IC)
+# ls_genes_terms <- ls_genes_mapped %>%
+#   rbindlist() %>%
+#   select(PatientId, prop_terms) %>%
+#   .$prop_terms %>%
+#   unlist() %>%
+#   unique()
+# 
+# ic <- get_term_info_content(ontology = ont_hpo, term_sets = ls_genes_terms)
+# 
+# ic <- tibble(term = names(ic),
+#              ic = ic)
+
+# reshape each bin to unique HPO terms
+# define positive and negative groups
+for(i in 1:length(ls_genes_mapped)){
+  ls_genes_mapped[[i]][ls_genes_mapped[[i]]$status == "cdkl5", ]$status <- "Y"
+  ls_genes_mapped[[i]][ls_genes_mapped[[i]]$status != "cdkl5" &
+                         ls_genes_mapped[[i]]$status != "Y", ]$status <- "N"
+}
+
+# count of each genetic subgroup
+# run Fisher's test
+# get n most significant terms per bin
+ls_genes_pvalues <- list()
+for(i in 1:length(ls_genes_mapped)){
+  df_group <- ls_genes_mapped[[i]] %>%
+    select(PatientId, status, prop_terms) %>%
+    unnest(cols = c(prop_terms)) %>%
+    group_by(prop_terms, status) %>%
+    count(prop_terms) %>%
+    pivot_wider(names_from = status, values_from = n) %>%
+    replace(is.na(.), 0) %>%
+    rename(term = prop_terms)
+  
+  # merge in description
+  df_group <- left_join(df_group, desc_map, by = "term")
+  
+  # check if tbin contains any case observations
+  # this is not the case for the CDKL5 cohort, due to sample size limitations
+  # if true, then skip this bin
+  if(is.null(df_group$Y)){next}
+  
+  # df_group can also be used for enrichment plots
+  df_group <- df_group %>% 
+    mutate(Y_out = max(df_group$Y)-Y,
+           N_out = max(df_group$N)-N) %>% 
+    mutate(pvalue = fish_test_it(Y, Y_out, N, N_out, "pvalue"),
+           odds = fish_test_it(Y, Y_out, N, N_out, "odds"),
+           freq1 = Y/max(df_group$Y),
+           freq2 = N/max(df_group$N),
+           color_sig = ifelse(p.adjust(pvalue, "holm") < 0.05, "<", ">"),
+           size_sel = -log10(pvalue)*4)
+  
+  # get n best p-values for each bin for longitudinal plot
+  df_group <- df_group %>%
+    ungroup() %>%
+    select(term, description, pvalue) %>% 
+    slice_min(order_by = pvalue, n = 8, with_ties = FALSE) # non-trivial to choose
+  
+  # # filter: by IC
+  # df_group <- df_group %>%
+  #   left_join(ic, by = "term") %>%
+  #   slice_max(order_by = ic, n = 2, with_ties = FALSE)
+  
+  # filter: by ancestors
+  min_set <- ontologyIndex::minimal_set(ont_hpo, df_group$term)
+  df_group <- df_group[df_group$term %in% min_set, ]
+  
+  # return
+  ls_genes_pvalues[[i]] <- df_group
+}
+
+# fix bin to correspond to mean age of bin for graph
+seq <- seq(1, length(breaks_binned), 1)
+breaks_mean <- sapply(seq, function(i) {mean(breaks_binned[i:(i+1)])}) %>%
+  na.omit
+
+# filter: for each term, keep only the bin with the highest p-value
+names(ls_genes_pvalues) <- breaks_mean[1:length(ls_genes_pvalues)]
+
+df_genes_pvalues <- ls_genes_pvalues %>%
+  rbindlist(idcol = "bin") %>%
+  mutate(bin = as.numeric(bin))
+
+df_genes_pvalues <- df_genes_pvalues %>%
+  group_by(term) %>% 
+  slice_min(order_by = pvalue, n = 1)
+
+# point plot: log10(pvalue) over age bins
+# here we can just plot genetic vs non-genetic as sanity check for the subanalysis
+palette <- colorRampPalette(RColorBrewer::brewer.pal(9, name = 'RdBu'))(length(breaks_mean))
+
+df_genes_pvalues %>%
+  ggplot(aes(x = bin, y = -log10(pvalue), fill = factor(bin, levels = breaks_mean))) +
+  geom_point() +
+  geom_label_repel(aes(label = description), size = 3,
+                   color = "black", max.overlaps = 10,
+                   force_pull = 0.5) +
+  scale_fill_manual(values = palette, 
+                    name = "Mean age (years)",
+                    breaks = breaks_mean, 
+                    labels = format(round(breaks_mean, 3), nsmall = 1),
+                    guide = guide_legend(override.aes = list(label = ""))) +
+  theme_classic() +
+  xlab("Age (years)")
 
