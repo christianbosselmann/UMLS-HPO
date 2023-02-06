@@ -115,8 +115,6 @@ ggpubr::ggdensity(df_filtered, x = "ContactAge",
                   fill = "GENEPOS_comb", palette = c("#00AFBB", "#E7B800"))
 
 # raincloud plot of age at diagnosis (ProcAge)
-devtools::source_gist("2a1bb0133ff568cbe28d", filename = "geom_flat_violin.R")
-
 pval <- data.frame(
   group1 = "N",
   group2 = "Y",
@@ -328,6 +326,72 @@ df_binned %>%
   ylab("") +
   labs(fill = "Age bins") +
   theme_classic()
+
+### WIP: CLUSTERING IN PHENOTYPIC SPACE ---------------------------------------
+### TODO currently does not work well
+# # take ls_mapped, a list of length bins, and work from there to get a list where
+# # each element is a unique patient with a character vector of propagated HPO terms
+# df_clust <- ls_mapped %>%
+#   rbindlist() %>%
+#   distinct(PatientId, prop_terms, GENEPOS_comb) %>%
+#   unnest(cols = c(prop_terms)) %>%
+#   group_by(PatientId) %>%
+#   mutate(term = paste0(prop_terms, collapse = ",")) %>%
+#   distinct(PatientId, term, GENEPOS_comb)
+# 
+# # maintain group label (GENEPOS_comb) by row or list index
+# y_clust <- factor(df_clust$GENEPOS_comb, levels = c("Y", "N"))
+# 
+# ls_clust <- split(df_clust, df_clust$PatientId) %>%
+#   lapply(function(x){x <- unlist(strsplit(x$term, ","))
+#   x <- unique(x)})
+# 
+# # get pairwise phenotypic similarity
+# mat_clust <- pairwiseSimilarity(ls_clust, ont_hpo, "resnik")
+# 
+# # use pairwise similarity for spectral clustering
+# librarian::shelf(Spectrum)
+# 
+# # estimate n cluster 
+# k_test <- estimate_k(mat_clust)
+# 
+# # simple baseline: kpca
+# plot_kpca <- kernel_pca(mat_clust, labels = y_clust, dotsize = 1)
+# 
+# # for Spectrum, shape list into dataframe: pad, pivot and make binary
+# mx <- max(lengths(ls_clust))
+# ls_df <- lapply(ls_clust, function(x){
+#   x <- unique(x)
+# })
+# 
+# ls_df <- lapply(ls_df, `length<-`, mx)
+# ls_df <- ls_df %>% data.frame()
+# 
+# ls_df <- ls_df %>%
+#   pivot_longer(cols = everything(), names_to = "id") %>%
+#   distinct(id, value) %>%
+#   pivot_wider(id_cols = "id", names_from = "value") %>%
+#   select(-id) %>%
+#   replace(!is.na(.), "1") %>%
+#   replace(is.na(.), "0") %>%
+#   mutate(across(where(is.character), as.numeric)) %>%
+#   transpose()
+# 
+# # now for spectral clustering
+# spc <- Spectrum(ls_df, 
+#                 showpca = TRUE,
+#                 method = 1,
+#                 dotsize = 1)
+# 
+# pca(spc$similarity_matrix,
+#     labels = y_clust, # or spc$assignment
+#     axistextsize = 8, 
+#     legendtextsize = 8,
+#     dotsize = 1)
+# 
+# kernel_pca(spc$similarity_matrix, 
+#            labels = y_clust, 
+#            dotsize = 1)
 
 ### SUBGROUPS: PREPROCESSING ---------------------------------------------------
 # data: get list of MRNs per patient
