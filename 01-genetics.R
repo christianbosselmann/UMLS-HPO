@@ -19,7 +19,9 @@ librarian::shelf(tidyverse,
                  scales,
                  finalfit,
                  kableExtra,
-                 MatchIt)
+                 MatchIt,
+                 kernlab,
+                 Spectrum)
 
 # functions
 source("func.R")
@@ -345,7 +347,41 @@ Fig3 <- cowplot::plot_grid(p4, p5, p6,
                            labels = "AUTO")
 
 ### EXPERIMENTAL: CLUSTERING AND NETWORK ANALYSIS -----------------------------
-
+# # make list where each element is a unique patient with a character vector of propagated HPO terms
+# df_clust1 <- split(df_match2, df_match2$PatientId)
+# 
+# ls_clust1 <- df_clust1 %>%
+#   lapply(function(x){x <- x$term
+#   x <- unique(x)})
+# 
+# # get group label
+# y_clust1 <- df_match2 %>%
+#   distinct(PatientId, group) %>%
+#   pull(group) %>%
+#   as.factor()
+# 
+# # get pairwise phenotypic similarity
+# mat_clust1 <- pairwiseSimilarity(ls_clust1, ont_hpo, "resnik")
+# 
+# # using Spectrum
+# spc <- Spectrum(mat_clust1,
+#                 showpca = FALSE,
+#                 method = 3,
+#                 fixk = 2,
+#                 dotsize = 1)
+# 
+# # assessment
+# y_hat <- spc$assignments %>% as.factor()
+# levels(y_hat) <- c(FALSE, TRUE)
+# accuracy_vec(truth = y_clust1, estimate = y_hat) # ACC
+# infotheo::mutinformation(y_clust1, y_hat, method = "emp") # MI
+# fossil::adj.rand.index(as.numeric(y_clust1), as.numeric(y_hat)) # ARI
+#                    
+# # visualization
+# kpc <- kpca(as.kernelMatrix(mat_clust1), features = 2)
+# plot(rotated(kpc), col = y_hat, pch = 4,            # estimated classes (x)
+#      xlab = "1st Principal Component", ylab = "2nd Principal Component")
+# points(rotated(kpc), col = y_clust1, pch = 5)       # true classes (<>)
 
 ### GENERATE REPORT -----------------------------------------------------------
 ## export figures
