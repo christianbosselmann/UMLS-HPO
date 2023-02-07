@@ -1,0 +1,383 @@
+### UMLS-HPO ANALYSIS OF INDIVIDUALS WITH GENETIC EPILEPSY SYNDROMES -----------
+##
+## Author: Christian Bosselmann, MD
+##
+## Date Created: 2023-02-07
+##
+## Copyright (c) Christian Bosselmann, 2023
+## Email: bosselc@ccf.org
+##
+### ----------------------------------------------------------------------------
+
+### HEADER ---------------------------------------------------------------------
+# packages
+library(librarian)
+librarian::shelf(tidyverse,
+                 ggrepel,
+                 ontologyIndex,
+                 data.table,
+                 scales,
+                 finalfit,
+                 kableExtra,
+                 MatchIt)
+
+# functions
+source("func.R")
+
+### ONTOLOGY -------------------------------------------------------------------
+# load ontologyIndex object
+ont_hpo <- get_ontology("hp.obo.txt", 
+                        propagate_relationships = "is_a", 
+                        extract_tags = "everything")
+
+# prepare UMLS-HPO map
+hpo_map <- lapply(ont_hpo$xref, function(x){
+  x <- x[x %like% "UMLS:"]
+  x <- sub('.*\\:', '', x)
+}) 
+
+hpo_map <- enframe(hpo_map) %>%
+  unnest(value) %>%
+  rename(ConceptID = value)
+
+# prepare HPO term description map
+desc_map <- tibble(term = ont_hpo$id,
+                   description = ont_hpo$name)
+
+# prepare propagation map
+prop_map <- ont_hpo$ancestors %>% 
+  enframe() %>%
+  rename(term = name, prop_terms = value)
+
+### DATA ----------------------------------------------------------------------
+# data: all encounters per patient, ages 0-6, grouped by gene positive / negative
+df_raw <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/longitudinal_genetic.csv")
+
+# data: list of MRNs per patient
+df_cdkl5 <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/cdkl5_genetic.csv")
+df_scn1a <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/scn1a_genetic.csv")
+
+# preprocessing: all
+df <- df_raw %>% 
+  select(PatientId, # patient ID
+         ConceptID, # UMLS code for encounter
+         GENEPOS_comb, # binary vector: non-genetic vs likely genetic patient
+         ContactAge, # relative age at encounter
+         ProcAge # age at epilepsy CPT
+  ) %>%
+  group_by(PatientId) %>%
+  arrange(desc(ContactAge)) %>%
+  # missing data imputation
+  fill(ContactAge, .direction = c("up")) %>%
+  na.omit
+
+# preprocessing: gene subgroups
+df_genes <- df_raw %>%
+  # mutate in logical flag for gene subgroup membership
+  mutate(cdkl5 = .$MedicalRecordNumber %in% df_cdkl5$MRN) %>%
+  mutate(scn1a = .$MedicalRecordNumber %in% df_scn1a$PAT_MRN_ID) %>%
+  select(PatientId, ConceptID, GENEPOS_comb, ContactAge, ProcAge, cdkl5, scn1a) %>%
+  group_by(PatientId) %>%
+  arrange(desc(ContactAge)) %>%
+  # missing data imputation
+  fill(ContactAge, .direction = c("up")) %>%
+  na.omit %>%
+  # merging group columns, descriptive labels
+  mutate(status = 
+           ifelse(scn1a == TRUE, "scn1a", 
+                  ifelse(cdkl5 == TRUE, "cdkl5", 
+                         ifelse(GENEPOS_comb == "N", "nongenetic",
+                                ifelse(GENEPOS_comb == "Y", "genetic",
+                                       NA))))) %>%
+  select(PatientId, ConceptID, ContactAge, ProcAge, status)
+
+# by-patient demographic data and age statistics
+df_person <- df_raw %>%
+  group_by(PatientId, DateOfBirth, Gender, Ethnicity, GENEPOS, GENEPOS_comb, ProcAge) %>%
+  summarize(max_age = max(ContactAge, na.rm = TRUE),
+            min_age = min(ContactAge, na.rm = TRUE),
+            median_age = median(ContactAge, na.rm = TRUE))
+
+# map subgroup dataframe to HPO and propagate
+df_genes_mapped <- df_genes %>%
+  left_join(hpo_map, by = "ConceptID") %>%
+  rename(term = name) %>%
+  left_join(prop_map, by = "term") %>%
+  select(-term) %>%
+  rename(term = prop_terms) %>%
+  na.omit %>%
+  unnest(cols = c(term))
+
+# define cohorts and match by age, sex and ethnicity; maintain label
+df_match <- df_genes %>%
+  left_join(df_person[,c("PatientId", "Gender", "Ethnicity", "median_age")], by = "PatientId") %>%
+  distinct(PatientId, Gender, Ethnicity, median_age, status)
+
+# set covariates as factors
+df_match <- df_match %>%
+  mutate(Gender = as.factor(Gender)) %>%
+  mutate(Ethnicity = as.factor(Ethnicity))
+
+## Group 1: genetic vs. non-genetic
+df_match1 <- df_match %>%
+  mutate(status = recode(status, 
+                         "nongenetic" = 0,
+                         "genetic" = 1,
+                         "scn1a" = 1,
+                         "cdkl5" = 1)) 
+
+df_match1 <- matchit(status ~ median_age + Ethnicity + Gender, 
+                     data = df_match1, ratio = 1,
+                     method = "nearest", distance = "glm")
+
+df_match1 <- match.data(df_match1)
+
+df_match1 <- df_match1 %>%
+  # merge in ConceptIDs
+  left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
+  # merge in propagated HPO terms
+  left_join(hpo_map, by = "ConceptID") %>%
+  rename(term = name) %>%
+  left_join(prop_map, by = "term") %>%
+  select(-term) %>%
+  rename(term = prop_terms) %>%
+  na.omit %>%
+  unnest(cols = c(term)) %>%
+  # recode for later enrichment plots
+  rename(group = status) %>%
+  mutate(group = as.logical(group))
+
+## Group 2: SCN1A vs. Genetic
+df_match2 <- df_match %>%
+  filter(status %in% c("genetic", "scn1a", "cdkl5")) %>%
+  mutate(status = recode(status, 
+                         "scn1a" = 1,
+                         "genetic" = 0,
+                         "cdkl5" = 0)) 
+
+df_match2 <- matchit(status ~ median_age + Ethnicity + Gender, 
+                     data = df_match2, ratio = 1,
+                     method = "nearest", distance = "glm")
+
+df_match2 <- match.data(df_match2)
+
+df_match2 <- df_match2 %>%
+  # merge in ConceptIDs
+  left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
+  # merge in propagated HPO terms
+  left_join(hpo_map, by = "ConceptID") %>%
+  rename(term = name) %>%
+  left_join(prop_map, by = "term") %>%
+  select(-term) %>%
+  rename(term = prop_terms) %>%
+  na.omit %>%
+  unnest(cols = c(term)) %>%
+  # recode for later enrichment plots
+  rename(group = status) %>%
+  mutate(group = as.logical(group))
+
+## Group 3: CDKL5 vs. Genetic
+df_match3 <- df_match %>%
+  filter(status %in% c("genetic", "scn1a", "cdkl5")) %>%
+  mutate(status = recode(status, 
+                         "cdkl5" = 1,
+                         "genetic" = 0,
+                         "scn1a" = 0)) 
+
+df_match3 <- matchit(status ~ median_age + Ethnicity + Gender, 
+                     data = df_match3, ratio = 1,
+                     method = "nearest", distance = "glm")
+
+df_match3 <- match.data(df_match3)
+
+df_match3 <- df_match3 %>%
+  # merge in ConceptIDs
+  left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
+  # merge in propagated HPO terms
+  left_join(hpo_map, by = "ConceptID") %>%
+  rename(term = name) %>%
+  left_join(prop_map, by = "term") %>%
+  select(-term) %>%
+  rename(term = prop_terms) %>%
+  na.omit %>%
+  unnest(cols = c(term)) %>%
+  # recode for later enrichment plots
+  rename(group = status) %>%
+  mutate(group = as.logical(group))
+
+### SUMMARY STATS -------------------------------------------------------------
+## demographic table
+tbl_person <- df_person %>%  
+  # recode UMLS to sex
+  mutate(Gender = recode(Gender, 
+                         "C0086582" = "Male",
+                         "C0086287" = "Female")) %>%
+  # recode UMLS to ethnicity
+  mutate(Ethnicity = recode(Ethnicity, 
+                            "C1518424" = "Not Hispanic or Latino",
+                            "C1549625" = "Unknown",
+                            "C5441846" = "Hispanic or Latino",
+                            "None" = "Unknown")) %>% 
+  summary_factorlist(dependent = "GENEPOS_comb", 
+                     explanatory = c("Gender", "Ethnicity", "ProcAge", "min_age", "median_age", "max_age"),
+                     p = TRUE, na_include = TRUE)  %>%
+  knitr::kable("html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE) 
+
+## p1: flag plot of encounters over age
+p1 <- df %>%
+  summarise(lower = min(ContactAge), 
+            upper = max(ContactAge), 
+            p = mean(ContactAge)) %>%
+  ggplot(aes(x = p, xmin = lower, xmax = upper, 
+             y = reorder(PatientId, upper))) +
+  geom_linerange(size = 0.1) +
+  ylab("Individuals") +
+  xlab("Age at encounter") +
+  scale_color_brewer(palette = "Dark2") +
+  scale_fill_brewer(palette = "Dark2") +
+  coord_cartesian(xlim = c(0, 35), expand = FALSE) +
+  theme_classic() +
+  theme(axis.ticks.y = element_blank(),
+        axis.text.y = element_blank())
+
+## p2: flat violin (raincloud) plot of age at encounter
+p2 <- ggplot(data = df, aes(x = GENEPOS_comb, y = ContactAge, fill = GENEPOS_comb)) +
+  geom_flat_violin(position = position_nudge(x = .1, y = 0), alpha = .8) +
+  guides(fill = "none", color = "none") +
+  scale_color_brewer(palette = "Dark2") +
+  scale_fill_brewer(palette = "Dark2") +
+  xlab("Group") +
+  ylab("Age at encounter") +
+  theme_classic() + 
+  coord_cartesian(xlim = c(1.5, 2)) +
+  geom_boxplot(width = .1, show.legend = FALSE, outlier.shape = NA, alpha = 0.5) +
+  ggpubr::stat_compare_means(aes(label = ..p.signif..),
+                             comparisons = list(c("N", "Y")),
+                             label.x = 1.5, label.y = c(20))
+
+## p3: flat violin (raincloud) plot of age at diagnosis
+p3 <- ggplot(data = df, aes(x = GENEPOS_comb, y = ProcAge, fill = GENEPOS_comb)) +
+  geom_flat_violin(position = position_nudge(x = .1, y = 0), alpha = .8) +
+  guides(fill = "none", color = "none") +
+  scale_color_brewer(palette = "Dark2") +
+  scale_fill_brewer(palette = "Dark2") +
+  xlab("Group") +
+  ylab("Age at diagnosis") +
+  theme_classic() + 
+  coord_cartesian(xlim = c(1.5, 2), ylim = c(0, 7)) +
+  geom_boxplot(width = .1, show.legend = FALSE, outlier.shape = NA, alpha = 0.5) +
+  ggpubr::stat_compare_means(aes(label = ..p.signif..),
+                             comparisons = list(c("N", "Y")),
+                             label.x = 1.5, label.y = c(6))
+
+## Fig. 1
+p2_3 <- cowplot::plot_grid(p2, p3, nrow = 2, labels = c("B", "C"))
+Fig1 <- cowplot::plot_grid(p1, p2_3, rel_widths = c(2/3, 1/3), labels = c("A", ""))
+
+### ENRICHMENT PLOTS -----------------------------------------------------------
+## Group 1: genetic vs. non-genetic
+enrich1 <- df_match1 %>%
+  enrichmentPlot(., ont_hpo)
+
+# manual labels
+enrich1$plot$data$expcat_text <- NA
+enrich1$plot$data[enrich1$plot$data$description == "Abnormality of the genitourinary system", ]$expcat_text <- "Abnormality of the genitourinary system"
+enrich1$plot$data[enrich1$plot$data$description == "Abnormality of the skeletal system", ]$expcat_text <- "Abnormality of the skeletal system"
+enrich1$plot$data[enrich1$plot$data$description == "Abnormality of cardiovascular system morphology", ]$expcat_text <- "Abnormality of cardiovascular system morphology"
+enrich1$plot$data[enrich1$plot$data$description == "Abnormality of the nervous system", ]$expcat_text <- "Abnormality of the nervous system"
+
+enrich1$plot <- enrich1$plot +
+  coord_fixed(xlim = c(0, .3), ylim = c(0, .3)) +
+  ggtitle("Genetic vs. Non-Genetic") +
+  theme(plot.title = element_text(hjust = 0.5, size = 18))
+
+## Group 2: SCN1A vs. Genetic
+enrich2 <- df_match2 %>%
+  enrichmentPlot(., ont_hpo)
+
+# manual labels
+enrich2$plot$data$expcat_text <- NA
+enrich2$plot$data[enrich2$plot$data$description == "Seizure", ]$expcat_text <- "Seizure"
+enrich2$plot$data[enrich2$plot$data$description == "Abnormality of movement", ]$expcat_text <- "Abnormality of movement"
+enrich2$plot$data[enrich2$plot$data$description == "Abnormality of the cardiovascular system", ]$expcat_text <- "Abnormality of the cardiovascular system"
+enrich2$plot$data[enrich2$plot$data$description == "Infection-related seizure", ]$expcat_text <- "Infection-related seizure"
+
+enrich2$plot <- enrich2$plot +
+  coord_fixed(xlim = c(0, .2), ylim = c(0, .2)) +
+  ggtitle("SCN1A vs. Genetic") +
+  theme(plot.title = element_text(hjust = 0.5, size = 18))
+
+## Group 3: CDKL5 vs. Genetic
+enrich3 <- df_match3 %>%
+  enrichmentPlot(., ont_hpo)
+
+# manual labels
+enrich3$plot$data$expcat_text <- NA
+enrich3$plot$data[enrich3$plot$data$description == "Arrhythmia", ]$expcat_text <- "Arrhythmia"
+enrich3$plot$data[enrich3$plot$data$description == "Abnormality of the nervous system", ]$expcat_text <- "Abnormality of the nervous system"
+enrich3$plot$data[enrich3$plot$data$description == "Abnormal inflammatory response", ]$expcat_text <- "Abnormal inflammatory response"
+enrich3$plot$data[enrich3$plot$data$description == "Low levels of vitamin D", ]$expcat_text <- "Low levels of vitamin D"
+
+enrich3$plot <- enrich3$plot +
+  coord_fixed(xlim = c(0, .5), ylim = c(0, .5)) +
+  ggtitle("CDKL5 vs. Genetic") +
+  theme(plot.title = element_text(hjust = 0.5, size = 18))
+
+## Fig. 2
+Fig2 <- cowplot::plot_grid(enrich1$plot, enrich2$plot, enrich3$plot, 
+                           nrow = 1,
+                           rel_widths = c(1/3, 1/3, 1/3), labels = "AUTO")
+
+### LONGITUDINAL ANALYSIS -----------------------------------------------------
+## Group 1
+p4 <- longitudinalPlot(df_genes, df_match1)
+
+## Group 2
+p5 <- longitudinalPlot(df_genes, df_match2)
+
+## Group 3
+p6 <- longitudinalPlot(df_genes, df_match3)
+
+## Fig. 3
+Fig3 <- cowplot::plot_grid(p4, p5, p6, 
+                           nrow = 3, ncol = 1,
+                           labels = "AUTO")
+
+### GENERATE REPORT -----------------------------------------------------------
+## export figures
+# Figure 1
+pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig1.pdf",
+    width = 12,
+    height = 6)
+
+Fig1
+
+dev.off()
+
+# Figure 2
+pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig2.pdf",
+    width = 12,
+    height = 4.5)
+
+Fig2
+
+dev.off()
+
+# Figure 3
+pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig3.pdf",
+    width = 12,
+    height = 12)
+
+Fig3
+
+dev.off()
+
+# Table 1
+tbl_person %>%
+  save_kable("/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Tbl1.png", density = 900, zoom = 1.5)
+
+
+
+
+
