@@ -343,8 +343,9 @@ GeomFlatViolin <-
 #' @param df_genes df with cols PatientId, ConceptID, ContactAge, ProcAge, status
 #' @param df_match1 df subset after matching procedure with column group for cohort membership
 #' @param show_legend ggplot2 legend.position, allowed are: “left”, “top”, “right”, “bottom”.
+#' @param fix_x int; fixed x-axis length
 #' @return res list of longitudinal plot
-longitudinalPlot <- function(df_genes, df_match1, show_legend = "none"){
+longitudinalPlot <- function(df_genes, df_match1, show_legend = "none", fix_x = 25){
   res <- list()
   
   # create age bins
@@ -412,6 +413,10 @@ longitudinalPlot <- function(df_genes, df_match1, show_legend = "none"){
              color_sig = ifelse(p.adjust(pvalue, "holm") < 0.05, "<", ">"),
              size_sel = -log10(pvalue)*4)
     
+    # filter by positive ORs: we only want observations for the cases
+    df_group <- df_group %>%
+      filter(odds > 1)
+    
     # get n best p-values for each bin for longitudinal plot
     df_group <- df_group %>%
       ungroup() %>%
@@ -449,16 +454,19 @@ longitudinalPlot <- function(df_genes, df_match1, show_legend = "none"){
   res$plot <- df_gp1 %>%
     ggplot(aes(x = bin, y = -log10(pvalue), fill = factor(bin, levels = breaks_mean))) +
     geom_point() +
-    geom_label_repel(aes(label = description), size = 3,
-                     color = "black", max.overlaps = 10,
-                     force_pull = 0.5) +
+    geom_label_repel(aes(label = description), size = 3.0,
+                     color = "black", max.overlaps = Inf,
+                     force_pull = 0.01) +
     scale_fill_manual(values = palette, 
                       name = "Mean age (years)",
                       breaks = breaks_mean, 
                       labels = format(round(breaks_mean, 3), nsmall = 1),
                       guide = guide_legend(override.aes = list(label = ""))) +
+    scale_x_continuous(expand = expand_scale(mult = c(0.1, 0))) +
+    scale_y_continuous(expand = expand_scale(mult = c(0.4, 0.4))) +
     theme_classic() +
     theme(legend.position = show_legend) +
+    coord_cartesian(xlim = c(0, fix_x)) +
     xlab("Age (years)")
 }
 
