@@ -499,8 +499,6 @@ FigS2 <- cowplot::plot_grid(p7, p8,
 # points(rotated(kpc), col = y_clust1, pch = 5)       # true classes (<>)
 
 ### DIAGNOSTICS ---------------------------------------------------------------
-# this is where validation helper functions live
-
 # # pvalue distribution histogram
 # enrich1$data %>%
 #   ggplot(aes(x = pvalue)) +

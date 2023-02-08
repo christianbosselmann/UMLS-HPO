@@ -3,9 +3,11 @@
 ### visualize relative term frequency as enrichment plot
 #' @param data data.frame of Surgery, ConceptID (UMLS), term (HPO), and two groups to compare (TRUE; FALSE)
 #' @param ontology HPO ontologyIndex object
+#' @param forest logical flag; whether to calculate OR and draw a Forest plot
 #' @return res list of data.frame and plot object
 enrichmentPlot <- function(data,
-                           ontology){
+                           ontology,
+                           forest = FALSE){
   
   # object to return
   res <- list()
@@ -46,7 +48,7 @@ enrichmentPlot <- function(data,
            size_sel = -log10(pvalue)*4) 
   # %>%
   #   filter(freq1 > 0.05 | freq2 > 0.05) # minimum term frequency filter
-
+  
   res$data <- concept_vis_input.df3
   
   max_freq <- c(concept_vis_input.df3$freq1, concept_vis_input.df3$freq2) %>% max() 
@@ -75,6 +77,69 @@ enrichmentPlot <- function(data,
     theme(axis.text = element_text(color = "black"),
           axis.line = element_line(color = "black")) +
     guides(color = "none")
+  
+  # we can also use this function to return a Forest plot
+  
+  if(forest == TRUE){
+    # redo OR with confidence interval, assign to preallocated dataframe
+    concept_odds <- data.frame(OR = 1:nrow(concept_vis_input.df3),
+                               CI1 = 1:nrow(concept_vis_input.df3),
+                               CI2 = 1:nrow(concept_vis_input.df3))
+    
+    for(i in 1:nrow(concept_vis_input.df3)){
+      row <- concept_vis_input.df3[i, ] %>%
+        ungroup() %>%
+        select(Y, Y_out, N, N_out) %>%
+        data.matrix()
+      mat <- matrix(data = row, nrow=2)
+      fish <- fisher.test(mat)
+      concept_odds$OR[i] <- fish$estimate
+      concept_odds$CI1[i] <- fish$conf.int[[1]] # lower bound
+      concept_odds$CI2[i] <- fish$conf.int[[2]] # upper bound
+    }
+    
+    # merge with full df
+    df_concept <- cbind(concept_vis_input.df3, concept_odds)
+    
+    df_concept <- df_concept %>%
+      ungroup() 
+    # # only keep significant OR
+    # filter(CI1 > 1) %>%
+    # # only keep significant observations after correction
+    # filter(color_sig == "<") 
+    
+    # # filter: by ancestors
+    # min_set <- ontologyIndex::minimal_set(ont_hpo, df_concept$term)
+    # df_concept <- df_concept[df_concept$term %in% min_set, ]
+    
+    # filter: custom terms to display
+    vec_terms <- c("Neurodevelopmental abnormality",
+                   "Abnormality of metabolism/homeostasis",
+                   "Abnormality of prenatal development or birth",
+                   "Abnormality of the immune system",
+                   "Abnormality of the genitourinary system", 
+                   "Abnormality of the skeletal system",
+                   "Abnormality of the cardiovascular system",
+                   "Abnormality of the nervous system",
+                   "Abnormality of the digestive system",
+                   "Abnormal respiratory system physiology"
+    )
+    
+    # plot
+    res$forest <- df_concept %>%
+      # # keep n best
+      # slice_max(order_by = OR, n = 8, with_ties = FALSE) %>%
+      filter(description %in% vec_terms) %>%
+      ggplot(aes(y = reorder(description, OR))) +
+      geom_point(aes(x = OR), shape = 15, size = 3) +
+      geom_linerange(aes(xmin = CI1, xmax = CI2)) +
+      geom_vline(xintercept = 1, linetype = "dashed") +
+      scale_x_continuous(trans = 'log10') +
+      expand_limits(x = 1) +
+      theme_classic() +
+      ylab("") +
+      xlab("Odds ratio (95% CI, log scale)")
+  }
   
   return(res)
 }
@@ -437,7 +502,7 @@ longitudinalPlot <- function(df_genes, df_match1, show_legend = "none", fix_x = 
     # filter: by ancestors
     min_set <- ontologyIndex::minimal_set(ont_hpo, df_group$term)
     df_group <- df_group[df_group$term %in% min_set, ]
-
+    
     # return
     ls_p1[[i]] <- df_group
   }
