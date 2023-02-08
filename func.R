@@ -25,6 +25,10 @@ enrichmentPlot <- function(data,
   # add in term descriptions for graph
   df_group <- left_join(df_group, desc_map, by = "term")
   
+  # # filter: by ancestors, as in longitudinal plot
+  # min_set <- ontologyIndex::minimal_set(ontology, df_group$term)
+  # df_group <- df_group[df_group$term %in% min_set, ]
+  
   # data characteristics
   Y_tot <- max(df_group$Y) # total number of observations in group
   N_tot <- max(df_group$N) # total number of observations in !group
@@ -39,9 +43,10 @@ enrichmentPlot <- function(data,
            freq1 = Y/Y_tot,
            freq2 = N/N_tot,
            color_sig = ifelse(p.adjust(pvalue, "holm") < 0.001, "<", ">"),
-           size_sel = -log10(pvalue)*4) %>%
-    filter(freq1 > 0.05 | freq2 > 0.05) # minimum term frequency filter
-  
+           size_sel = -log10(pvalue)*4) 
+  # %>%
+  #   filter(freq1 > 0.05 | freq2 > 0.05) # minimum term frequency filter
+
   res$data <- concept_vis_input.df3
   
   max_freq <- c(concept_vis_input.df3$freq1, concept_vis_input.df3$freq2) %>% max() 
@@ -61,7 +66,12 @@ enrichmentPlot <- function(data,
     scale_color_manual(values = c("red", "black")) +
     labs(y = "Case",
          x = "Control") +
-    geom_label_repel(aes(label = expcat_text), color = "black", max.overlaps = 8, size = 3, force_pull = 0.4) +
+    geom_label_repel(aes(label = expcat_text), 
+                     color = "black", 
+                     max.overlaps = 8, 
+                     size = 3, 
+                     force_pull = 0.2,
+                     min.segment.length = 0) +
     theme(axis.text = element_text(color = "black"),
           axis.line = element_line(color = "black")) +
     guides(color = "none")
@@ -420,13 +430,14 @@ longitudinalPlot <- function(df_genes, df_match1, show_legend = "none", fix_x = 
     # get n best p-values for each bin for longitudinal plot
     df_group <- df_group %>%
       ungroup() %>%
-      select(term, description, pvalue) %>% 
-      slice_min(order_by = pvalue, n = 8, with_ties = FALSE) # non-trivial to choose
+      select(term, description, pvalue) 
+    # %>% 
+    #   slice_min(order_by = pvalue, n = 8, with_ties = FALSE) # non-trivial to choose
     
     # filter: by ancestors
     min_set <- ontologyIndex::minimal_set(ont_hpo, df_group$term)
     df_group <- df_group[df_group$term %in% min_set, ]
-    
+
     # return
     ls_p1[[i]] <- df_group
   }
@@ -447,6 +458,18 @@ longitudinalPlot <- function(df_genes, df_match1, show_legend = "none", fix_x = 
     group_by(term) %>% 
     slice_min(order_by = pvalue, n = 1)
   
+  # filter: only needed if we include many or insignificant variables
+  # only keep description labels for n top pvalues per bin
+  # these still have to be significant
+  top_labels <- df_gp1 %>%
+    group_by(bin) %>%
+    slice_min(order_by = pvalue, n = 2) %>%
+    filter(pvalue < 0.05)
+  
+  df_gp1 <- df_gp1 %>%
+    group_by(bin) %>%
+    mutate(description = ifelse(description %in% top_labels$description, description, NA))
+  
   # point plot: log10(pvalue) over age bins
   # here we can just plot genetic vs non-genetic as sanity check for the subanalysis
   palette <- colorRampPalette(RColorBrewer::brewer.pal(9, name = 'RdBu'))(length(breaks_mean))
@@ -454,17 +477,19 @@ longitudinalPlot <- function(df_genes, df_match1, show_legend = "none", fix_x = 
   res$plot <- df_gp1 %>%
     ggplot(aes(x = bin, y = -log10(pvalue), fill = factor(bin, levels = breaks_mean))) +
     geom_point() +
+    geom_jitter() +
     geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
     geom_label_repel(aes(label = description), size = 3.0,
                      color = "black", max.overlaps = Inf,
-                     force_pull = 0.01) +
+                     force_pull = 0.01,
+                     min.segment.length = 0) +
     scale_fill_manual(values = palette, 
                       name = "Mean age (years)",
                       breaks = breaks_mean, 
                       labels = format(round(breaks_mean, 3), nsmall = 1),
                       guide = guide_legend(override.aes = list(label = ""))) +
-    scale_x_continuous(expand = expand_scale(mult = c(0.1, 0))) +
-    scale_y_continuous(expand = expand_scale(mult = c(0.3, 0.3))) +
+    scale_x_continuous(expand = expand_scale(mult = c(0.1, 0.1))) +
+    scale_y_continuous(expand = expand_scale(mult = c(0, 0.1))) +
     theme_classic() +
     theme(legend.position = show_legend) +
     coord_cartesian(xlim = c(0, fix_x)) +

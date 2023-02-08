@@ -498,6 +498,15 @@ FigS2 <- cowplot::plot_grid(p7, p8,
 #      xlab = "1st Principal Component", ylab = "2nd Principal Component")
 # points(rotated(kpc), col = y_clust1, pch = 5)       # true classes (<>)
 
+### DIAGNOSTICS ---------------------------------------------------------------
+# this is where validation helper functions live
+
+# # pvalue distribution histogram
+# enrich1$data %>%
+#   ggplot(aes(x = pvalue)) +
+#   geom_histogram() +
+#   theme_classic()
+
 ### GENERATE REPORT -----------------------------------------------------------
 ## export figures
 # Figure 1: Descriptive statistics of the study cohort.
@@ -521,7 +530,7 @@ dev.off()
 # Figure 3: Longitudinal plots.
 pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig3.pdf",
     width = 12,
-    height = 12)
+    height = 15)
 
 Fig3
 
@@ -543,7 +552,7 @@ dev.off()
 # Figure S2: As Figure 3, but with non-genetic matches.
 pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/FigS2.pdf",
     width = 12,
-    height = 8)
+    height = 10)
 
 FigS2
 
