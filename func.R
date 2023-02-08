@@ -454,6 +454,7 @@ longitudinalPlot <- function(df_genes, df_match1, show_legend = "none", fix_x = 
   res$plot <- df_gp1 %>%
     ggplot(aes(x = bin, y = -log10(pvalue), fill = factor(bin, levels = breaks_mean))) +
     geom_point() +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
     geom_label_repel(aes(label = description), size = 3.0,
                      color = "black", max.overlaps = Inf,
                      force_pull = 0.01) +
@@ -463,7 +464,7 @@ longitudinalPlot <- function(df_genes, df_match1, show_legend = "none", fix_x = 
                       labels = format(round(breaks_mean, 3), nsmall = 1),
                       guide = guide_legend(override.aes = list(label = ""))) +
     scale_x_continuous(expand = expand_scale(mult = c(0.1, 0))) +
-    scale_y_continuous(expand = expand_scale(mult = c(0.4, 0.4))) +
+    scale_y_continuous(expand = expand_scale(mult = c(0.3, 0.3))) +
     theme_classic() +
     theme(legend.position = show_legend) +
     coord_cartesian(xlim = c(0, fix_x)) +

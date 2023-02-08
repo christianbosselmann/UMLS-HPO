@@ -207,6 +207,62 @@ df_match3 <- df_match3 %>%
   rename(group = status) %>%
   mutate(group = as.logical(group))
 
+## Group 4: SCN1A vs. Non-Genetic
+df_match4 <- df_match %>%
+  filter(status %in% c("nongenetic", "scn1a")) %>%
+  mutate(status = recode(status, 
+                         "nongenetic" = 0,
+                         "scn1a" = 1)) 
+
+df_match4 <- matchit(status ~ median_age + Ethnicity + Gender, 
+                     data = df_match4, ratio = 1,
+                     method = "nearest", distance = "glm")
+
+df_match4 <- match.data(df_match4)
+
+df_match4 <- df_match4 %>%
+  # merge in ConceptIDs
+  left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
+  # merge in propagated HPO terms
+  left_join(hpo_map, by = "ConceptID") %>%
+  rename(term = name) %>%
+  left_join(prop_map, by = "term") %>%
+  select(-term) %>%
+  rename(term = prop_terms) %>%
+  na.omit %>%
+  unnest(cols = c(term)) %>%
+  # recode for later enrichment plots
+  rename(group = status) %>%
+  mutate(group = as.logical(group))
+
+## Group 5: CDKL5 vs. Non-Genetic
+df_match5 <- df_match %>%
+  filter(status %in% c("nongenetic", "cdkl5")) %>%
+  mutate(status = recode(status, 
+                         "nongenetic" = 0,
+                         "cdkl5" = 1)) 
+
+df_match5 <- matchit(status ~ median_age + Ethnicity + Gender, 
+                     data = df_match5, ratio = 1,
+                     method = "nearest", distance = "glm")
+
+df_match5 <- match.data(df_match5)
+
+df_match5 <- df_match5 %>%
+  # merge in ConceptIDs
+  left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
+  # merge in propagated HPO terms
+  left_join(hpo_map, by = "ConceptID") %>%
+  rename(term = name) %>%
+  left_join(prop_map, by = "term") %>%
+  select(-term) %>%
+  rename(term = prop_terms) %>%
+  na.omit %>%
+  unnest(cols = c(term)) %>%
+  # recode for later enrichment plots
+  rename(group = status) %>%
+  mutate(group = as.logical(group))
+
 ### SUMMARY STATS -------------------------------------------------------------
 ## demographic table
 tbl_person <- df_person %>%  
@@ -331,6 +387,43 @@ Fig2 <- cowplot::plot_grid(enrich1$plot, enrich2$plot, enrich3$plot,
                            nrow = 1,
                            rel_widths = c(1/3, 1/3, 1/3), labels = "AUTO")
 
+## Group 4: SCN1A vs. Non-Genetic
+enrich4 <- df_match4 %>%
+  enrichmentPlot(., ont_hpo)
+
+# manual labels
+enrich4$plot$data$expcat_text <- NA
+enrich4$plot$data[enrich4$plot$data$description == "Seizure", ]$expcat_text <- "Seizure"
+enrich4$plot$data[enrich4$plot$data$description == "Morphological central nervous system abnormality", ]$expcat_text <- "Morphological central nervous system abnormality"
+enrich4$plot$data[enrich4$plot$data$description == "Muscle weakness", ]$expcat_text <- "Muscle weakness"
+enrich4$plot$data[enrich4$plot$data$description == "Infection-related seizure", ]$expcat_text <- "Infection-related seizure"
+
+enrich4$plot <- enrich4$plot +
+  coord_fixed(xlim = c(0, .35), ylim = c(0, .35)) +
+  ggtitle("SCN1A vs. Non-Genetic") +
+  theme(plot.title = element_text(hjust = 0.5, size = 18))
+
+## Group 5: CDKL5 vs. Non-Genetic
+enrich5 <- df_match5 %>%
+  enrichmentPlot(., ont_hpo)
+
+# manual labels
+enrich5$plot$data$expcat_text <- NA
+enrich5$plot$data[enrich5$plot$data$description == "Arrhythmia", ]$expcat_text <- "Arrhythmia"
+enrich5$plot$data[enrich5$plot$data$description == "Abnormality of the nervous system", ]$expcat_text <- "Abnormality of the nervous system"
+enrich5$plot$data[enrich5$plot$data$description == "Abnormal inflammatory response", ]$expcat_text <- "Abnormal inflammatory response"
+enrich5$plot$data[enrich5$plot$data$description == "Low levels of vitamin D", ]$expcat_text <- "Low levels of vitamin D"
+
+enrich5$plot <- enrich5$plot +
+  coord_fixed(xlim = c(0, .4), ylim = c(0, .4)) +
+  ggtitle("CDKL5 vs. Non-Genetic") +
+  theme(plot.title = element_text(hjust = 0.5, size = 18))
+
+## Fig. S1
+FigS1 <- cowplot::plot_grid(enrich4$plot, enrich5$plot,
+                           nrow = 1,
+                           rel_widths = c(.5, .5), labels = "AUTO")
+
 ### LONGITUDINAL ANALYSIS -----------------------------------------------------
 ## Group 1
 p4 <- longitudinalPlot(df_genes, df_match1)
@@ -346,26 +439,48 @@ Fig3 <- cowplot::plot_grid(p4, p5, p6,
                            nrow = 3, ncol = 1,
                            labels = "AUTO")
 
+## Group 4
+p7 <- longitudinalPlot(df_genes, df_match4)
+
+## Group 5
+p8 <- longitudinalPlot(df_genes, df_match5)
+
+## Fig. S2
+FigS2 <- cowplot::plot_grid(p7, p8, 
+                           nrow = 2, ncol = 1,
+                           labels = "AUTO")
+
 ### EXPERIMENTAL: CLUSTERING AND NETWORK ANALYSIS -----------------------------
 # # make list where each element is a unique patient with a character vector of propagated HPO terms
-# df_clust1 <- split(df_match2, df_match2$PatientId)
+# df_clust1 <- split(df_match4, df_match4$PatientId)
 # 
 # ls_clust1 <- df_clust1 %>%
 #   lapply(function(x){x <- x$term
 #   x <- unique(x)})
 # 
 # # get group label
-# y_clust1 <- df_match2 %>%
+# y_clust1 <- df_match4 %>%
 #   distinct(PatientId, group) %>%
 #   pull(group) %>%
 #   as.factor()
 # 
 # # get pairwise phenotypic similarity
 # mat_clust1 <- pairwiseSimilarity(ls_clust1, ont_hpo, "resnik")
+# kernelVisualization(mat_clust1)
+# 
+# # network visualization
+# g <- make_full_graph(nrow(mat_clust1))
+# el <- get.edgelist(g)
+# E(g)$weight <- mat_clust1[el]
+# spc <- Spectrum(mat_clust1) # can also use spectral clustering here to refine similarity
+# E(g)$weight <- spc$similarity_matrix[el]
+# E(g)$width <- E(g)$weight/6
+# V(g)$label <- NA
+# pg1 <- plot(g, vertex.color = y_clust1, layout = layout_with_fr(g))
 # 
 # # using Spectrum
 # spc <- Spectrum(mat_clust1,
-#                 showpca = FALSE,
+#                 showpca = F,
 #                 method = 3,
 #                 fixk = 2,
 #                 dotsize = 1)
@@ -376,8 +491,8 @@ Fig3 <- cowplot::plot_grid(p4, p5, p6,
 # accuracy_vec(truth = y_clust1, estimate = y_hat) # ACC
 # infotheo::mutinformation(y_clust1, y_hat, method = "emp") # MI
 # fossil::adj.rand.index(as.numeric(y_clust1), as.numeric(y_hat)) # ARI
-#                    
-# # visualization
+# 
+# # kpca cluster visualization
 # kpc <- kpca(as.kernelMatrix(mat_clust1), features = 2)
 # plot(rotated(kpc), col = y_hat, pch = 4,            # estimated classes (x)
 #      xlab = "1st Principal Component", ylab = "2nd Principal Component")
@@ -385,7 +500,7 @@ Fig3 <- cowplot::plot_grid(p4, p5, p6,
 
 ### GENERATE REPORT -----------------------------------------------------------
 ## export figures
-# Figure 1
+# Figure 1: Descriptive statistics of the study cohort.
 pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig1.pdf",
     width = 12,
     height = 6)
@@ -394,7 +509,7 @@ Fig1
 
 dev.off()
 
-# Figure 2
+# Figure 2: Enrichment plots.
 pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig2.pdf",
     width = 12,
     height = 4.5)
@@ -403,7 +518,7 @@ Fig2
 
 dev.off()
 
-# Figure 3
+# Figure 3: Longitudinal plots.
 pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig3.pdf",
     width = 12,
     height = 12)
@@ -416,7 +531,20 @@ dev.off()
 tbl_person %>%
   save_kable("/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Tbl1.png", density = 900, zoom = 1.5)
 
+# Figure S1: As Figure 2, but with non-genetic matches.
+pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/FigS1.pdf",
+    width = 8,
+    height = 4.5)
 
+FigS1
 
+dev.off()
 
+# Figure S2: As Figure 3, but with non-genetic matches.
+pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/FigS2.pdf",
+    width = 12,
+    height = 8)
 
+FigS2
+
+dev.off()
