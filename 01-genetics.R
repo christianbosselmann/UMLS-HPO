@@ -347,6 +347,81 @@ p3 <- ggplot(data = df, aes(x = GENEPOS_comb, y = ProcAge, fill = GENEPOS_comb))
 p2_3 <- cowplot::plot_grid(p2, p3, nrow = 2, labels = c("B", "C"))
 Fig1 <- cowplot::plot_grid(p1, p2_3, rel_widths = c(2/3, 1/3), labels = c("A", ""))
 
+## table of relative encounter frequency
+df_encounters <- df %>%
+  group_by(PatientId) %>%
+  mutate(encounter_freq = n_distinct(ContactAge)) %>%
+  distinct(PatientId, GENEPOS_comb, encounter_freq)
+
+# t-test: mean difference of number of encounters between groups
+p_encounters <- df_encounters %>%
+  mutate(GENEPOS_comb = as.factor(GENEPOS_comb)) %>%
+  ungroup() %>%
+  summarize(pval = t.test(encounter_freq ~ GENEPOS_comb)$p.value)
+
+# summary statistics of encounter frequency
+stats_encounters <- df_encounters %>%
+  group_by(GENEPOS_comb) %>%
+  summarize(mean = mean(encounter_freq), median = median(encounter_freq),
+            sd = sd(encounter_freq),
+            min = min(encounter_freq), max = max(encounter_freq),
+            n = n_distinct(PatientId))
+
+# plot encounter frequency over time
+df_encounters_freq <- df %>%
+  group_by(PatientId) %>%
+  select(-ConceptID) %>%
+  distinct(PatientId, GENEPOS_comb, ContactAge) %>%
+  count(cut_width(ContactAge, width = 1, boundary = 0, labels = F)) 
+
+df_encounters_freq <- df_encounters_freq %>%
+  ungroup() %>%
+  # maintain group label
+  left_join(df_encounters[ ,c("GENEPOS_comb", "PatientId")], by = "PatientId") %>%
+  # fix bin label
+  rename(bin = `cut_width(ContactAge, width = 1, boundary = 0, labels = F)`) %>%
+  group_by(bin, GENEPOS_comb) %>%
+  # get mean number of encounters per bin per group
+  summarize(mean = mean(n), sd = sd(n))
+
+p9 <- df_encounters_freq %>%
+  ggplot(aes(x = bin-1, y = mean, color = GENEPOS_comb, fill = GENEPOS_comb)) +
+  geom_smooth(se = TRUE) + 
+  theme_classic() +
+  coord_cartesian(xlim = c(0, 25), expand = FALSE) +
+  ylab("Mean number of encounters") +
+  xlab("Age (years)")
+
+## mean concepts per encounter over age
+df_encounters_age <- df %>%
+  group_by(PatientId, GENEPOS_comb, ContactAge) %>%
+  summarize(count_distinct = n_distinct(ConceptID)) %>%
+  group_by(GENEPOS_comb, ContactAge) %>%
+  summarize(count = mean(count_distinct))
+
+# summary statistics of unique concepts per encounter
+stats_encounters_age <- df_encounters_age %>%
+  group_by(GENEPOS_comb) %>%
+  summarize(mean = mean(count), median = median(count),
+            sd = sd(count),
+            min = min(count), max = max(count))
+
+# t-test: mean difference of unique concepts per encounters between groups
+p_encounters_age <- df_encounters_age %>%
+  mutate(GENEPOS_comb = as.factor(GENEPOS_comb)) %>%
+  ungroup() %>%
+  summarize(pval = t.test(count ~ GENEPOS_comb)$p.value)
+
+# plot: unique concept ID over count for each group
+p10 <- df_encounters_age %>%
+  ggplot(aes(x = ContactAge, y = count, color = GENEPOS_comb, fill = GENEPOS_comb)) +
+  geom_point() +
+  geom_smooth() +
+  theme_classic() +
+  coord_cartesian(xlim = c(0, 25), expand = FALSE) +
+  ylab("Mean number of concepts per encounter") +
+  xlab("Age (years)")
+
 ### ENRICHMENT PLOTS -----------------------------------------------------------
 ## Group 1: genetic vs. non-genetic
 enrich1 <- df_match1 %>%
