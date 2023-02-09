@@ -4,10 +4,12 @@
 #' @param data data.frame of Surgery, ConceptID (UMLS), term (HPO), and two groups to compare (TRUE; FALSE)
 #' @param ontology HPO ontologyIndex object
 #' @param forest logical flag; whether to calculate OR and draw a Forest plot
+#' @param qq logical flag; whether to plot a qq plot with CGEN
 #' @return res list of data.frame and plot object
 enrichmentPlot <- function(data,
                            ontology,
-                           forest = FALSE){
+                           forest = FALSE,
+                           qq = TRUE){
   
   # object to return
   res <- list()
@@ -114,9 +116,7 @@ enrichmentPlot <- function(data,
     # df_concept <- df_concept[df_concept$term %in% min_set, ]
     
     # filter: custom terms to display on Forest plot
-    vec_terms <- c("Neurodevelopmental abnormality",
-                   "Abnormality of metabolism/homeostasis",
-                   "Abnormality of prenatal development or birth",
+    vec_terms <- c("Abnormality of metabolism/homeostasis",
                    "Abnormality of the immune system",
                    "Abnormality of the genitourinary system", 
                    "Abnormality of the skeletal system",
@@ -131,7 +131,8 @@ enrichmentPlot <- function(data,
       # # keep n best
       # slice_max(order_by = OR, n = 8, with_ties = FALSE) %>%
       filter(description %in% vec_terms) %>%
-      ggplot(aes(y = reorder(description, OR))) +
+      ggplot(aes(y = description)) +
+      # ggplot(aes(y = reorder(description, OR))) +
       geom_point(aes(x = OR), shape = 15, size = 3) +
       geom_linerange(aes(xmin = CI1, xmax = CI2)) +
       geom_vline(xintercept = 1, linetype = "dashed") +
@@ -142,7 +143,12 @@ enrichmentPlot <- function(data,
       xlab("Odds ratio (95% CI, log scale)")
   }
   
-  QQ.plot(concept_vis_input.df3$pvalue)
+  # diagnostics: QQ plot
+  concept_vis_input.df3 %>%
+    ungroup() %>%
+    pull(pvalue) %>%
+    QQ.plot(.)
+
   abline(v = -log10(0.05), col = "blue")
   
   return(res)
@@ -423,8 +429,11 @@ GeomFlatViolin <-
 #' @param df_match1 df subset after matching procedure with column group for cohort membership
 #' @param show_legend ggplot2 legend.position, allowed are: “left”, “top”, “right”, “bottom”.
 #' @param fix_x int; fixed x-axis length
+#' @param odds_plot logical flag; if true, generate the plot with OR y-axis
 #' @return res list of longitudinal plot
-longitudinalPlot <- function(df_genes, df_match1, show_legend = "none", fix_x = 25){
+longitudinalPlot <- function(df_genes, df_match1, 
+                             show_legend = "none", fix_x = 25,
+                             odds_plot = FALSE){
   res <- list()
   
   # create age bins
@@ -499,7 +508,7 @@ longitudinalPlot <- function(df_genes, df_match1, show_legend = "none", fix_x = 
     # get n best p-values for each bin for longitudinal plot
     df_group <- df_group %>%
       ungroup() %>%
-      select(term, description, pvalue) 
+      select(term, description, pvalue, odds) 
     # %>% 
     #   slice_min(order_by = pvalue, n = 8, with_ties = FALSE) # non-trivial to choose
     
@@ -563,5 +572,33 @@ longitudinalPlot <- function(df_genes, df_match1, show_legend = "none", fix_x = 
     theme(legend.position = show_legend) +
     coord_cartesian(xlim = c(0, fix_x)) +
     xlab("Age (years)")
+  
+  # OR plot
+  if(odds_plot){
+    res$plot_or <- df_gp1 %>%
+      ggplot(aes(x = bin, y = odds, fill = factor(bin, levels = breaks_mean))) +
+      geom_point() +
+      geom_jitter() +
+      geom_label_repel(aes(label = description), size = 3.0,
+                       color = "black", max.overlaps = Inf,
+                       force_pull = 0.01,
+                       min.segment.length = 0) +
+      scale_fill_manual(values = palette, 
+                        name = "Mean age (years)",
+                        breaks = breaks_mean, 
+                        labels = format(round(breaks_mean, 3), nsmall = 1),
+                        guide = guide_legend(override.aes = list(label = ""))) +
+      theme_classic() +
+      theme(legend.position = show_legend) +
+      coord_cartesian(xlim = c(0, fix_x)) +
+      xlab("Age (years)") +
+      ylab("Odds ratio (censored, log scale)") +
+      scale_x_continuous(expand = expand_scale(mult = c(0.1, 0.1))) +
+      scale_y_continuous(oob = scales::oob_squish_infinite,
+                         trans = scales::log_trans(base = 10),
+                         expand = expand_scale(mult = c(0, .1)))
+  }
+  
+  return(res)
 }
 

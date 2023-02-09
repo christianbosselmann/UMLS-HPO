@@ -21,7 +21,9 @@ librarian::shelf(tidyverse,
                  kableExtra,
                  MatchIt,
                  kernlab,
-                 Spectrum)
+                 Spectrum,
+                 CGEN,
+                 egg)
 
 # functions
 source("func.R")
@@ -114,6 +116,13 @@ df_genes_mapped <- df_genes %>%
   na.omit %>%
   unnest(cols = c(term))
 
+# get term information content
+vec_ic <- split(df_genes_mapped, df_genes_mapped$PatientId, df_genes_mapped$term) %>%
+  lapply(function(x){x <- x$term}) %>%
+  get_term_info_content(ontology, ., patch_missing = FALSE) 
+
+df_ic <- data.frame(term = names(vec_ic), ic = vec_ic)
+
 # define cohorts and match by age, sex and ethnicity; maintain label
 df_match <- df_genes %>%
   left_join(df_person[,c("PatientId", "Gender", "Ethnicity", "median_age")], by = "PatientId") %>%
@@ -131,8 +140,6 @@ df_match1 <- df_match %>%
                          "genetic" = 1,
                          "scn1a" = 1,
                          "cdkl5" = 1)) 
-
-tmp <- df_match1
 
 df_match1 <- matchit(status ~ median_age + Ethnicity + Gender, 
                      data = df_match1, ratio = 1,
@@ -343,7 +350,7 @@ Fig1 <- cowplot::plot_grid(p1, p2_3, rel_widths = c(2/3, 1/3), labels = c("A", "
 ### ENRICHMENT PLOTS -----------------------------------------------------------
 ## Group 1: genetic vs. non-genetic
 enrich1 <- df_match1 %>%
-  enrichmentPlot(., ont_hpo)
+  enrichmentPlot(., ont_hpo, forest = TRUE)
 
 # manual labels
 enrich1$plot$data$expcat_text <- NA
@@ -359,7 +366,7 @@ enrich1$plot <- enrich1$plot +
 
 ## Group 2: SCN1A vs. Genetic
 enrich2 <- df_match2 %>%
-  enrichmentPlot(., ont_hpo)
+  enrichmentPlot(., ont_hpo, forest = TRUE)
 
 # manual labels
 enrich2$plot$data$expcat_text <- NA
@@ -375,7 +382,7 @@ enrich2$plot <- enrich2$plot +
 
 ## Group 3: CDKL5 vs. Genetic
 enrich3 <- df_match3 %>%
-  enrichmentPlot(., ont_hpo)
+  enrichmentPlot(., ont_hpo, forest = TRUE)
 
 # manual labels
 enrich3$plot$data$expcat_text <- NA
@@ -394,9 +401,26 @@ Fig2 <- cowplot::plot_grid(enrich1$plot, enrich2$plot, enrich3$plot,
                            nrow = 1,
                            rel_widths = c(1/3, 1/3, 1/3), labels = "AUTO")
 
+## Fig. 2.1
+Fig2.1 <- egg::ggarrange(enrich1$forest +
+                           theme(plot.margin = margin(.5, .1, .1, .0, "cm"),
+                                 axis.title.x = element_blank()), 
+                         enrich2$forest + 
+                           theme(axis.text.y = element_blank(),
+                                 axis.title.y = element_blank(),
+                                 plot.margin = margin(.5, .1, .1, .25, "cm")) , 
+                         enrich3$forest + 
+                           theme(axis.text.y = element_blank(),
+                                 axis.title.y = element_blank(),
+                                 axis.title.x = element_blank(),
+                                 plot.margin = margin(.5, .1, .1, .25, "cm")),
+                         nrow = 1,
+                         labels = c("A", "B", "C"),
+                         label.args = list(gp = grid::gpar(fontface = "bold", cex = 1.2)))
+
 ## Group 4: SCN1A vs. Non-Genetic
 enrich4 <- df_match4 %>%
-  enrichmentPlot(., ont_hpo)
+  enrichmentPlot(., ont_hpo, forest = TRUE)
 
 # manual labels
 enrich4$plot$data$expcat_text <- NA
@@ -412,7 +436,7 @@ enrich4$plot <- enrich4$plot +
 
 ## Group 5: CDKL5 vs. Non-Genetic
 enrich5 <- df_match5 %>%
-  enrichmentPlot(., ont_hpo)
+  enrichmentPlot(., ont_hpo, forest = TRUE)
 
 # manual labels
 enrich5$plot$data$expcat_text <- NA
@@ -428,34 +452,57 @@ enrich5$plot <- enrich5$plot +
 
 ## Fig. S1
 FigS1 <- cowplot::plot_grid(enrich4$plot, enrich5$plot,
-                           nrow = 1,
-                           rel_widths = c(.5, .5), labels = "AUTO")
+                            nrow = 1,
+                            rel_widths = c(.5, .5), labels = "AUTO")
+
+## Fig. S1.1
+FigS1.1 <- egg::ggarrange(enrich4$forest +
+                            theme(plot.margin = margin(.5, .1, .1, .0, "cm")), 
+                          enrich5$forest + 
+                            theme(axis.text.y = element_blank(),
+                                  axis.title.y = element_blank(),
+                                  axis.title.x = element_blank(),
+                                  plot.margin = margin(.5, .1, .1, .25, "cm")),
+                          nrow = 1,
+                          labels = c("A", "B"),
+                          label.args = list(gp = grid::gpar(fontface = "bold", cex = 1.2)))
+
 
 ### LONGITUDINAL ANALYSIS -----------------------------------------------------
 ## Group 1
-p4 <- longitudinalPlot(df_genes, df_match1)
+p4 <- longitudinalPlot(df_genes, df_match1, odds_plot = TRUE)
 
 ## Group 2
-p5 <- longitudinalPlot(df_genes, df_match2)
+p5 <- longitudinalPlot(df_genes, df_match2, odds_plot = TRUE)
 
 ## Group 3
-p6 <- longitudinalPlot(df_genes, df_match3)
+p6 <- longitudinalPlot(df_genes, df_match3, odds_plot = TRUE)
 
 ## Fig. 3
-Fig3 <- cowplot::plot_grid(p4, p5, p6, 
+Fig3 <- cowplot::plot_grid(p4$plot, p5$plot, p6$plot, 
                            nrow = 3, ncol = 1,
                            labels = "AUTO")
 
+## Fig. 3.1
+Fig3.1 <- cowplot::plot_grid(p4$plot_or, p5$plot_or, p6$plot_or, 
+                             nrow = 3, ncol = 1,
+                             labels = "AUTO")
+
 ## Group 4
-p7 <- longitudinalPlot(df_genes, df_match4)
+p7 <- longitudinalPlot(df_genes, df_match4, odds_plot = TRUE)
 
 ## Group 5
-p8 <- longitudinalPlot(df_genes, df_match5)
+p8 <- longitudinalPlot(df_genes, df_match5, odds_plot = TRUE)
 
 ## Fig. S2
-FigS2 <- cowplot::plot_grid(p7, p8, 
-                           nrow = 2, ncol = 1,
-                           labels = "AUTO")
+FigS2 <- cowplot::plot_grid(p7$plot, p8$plot, 
+                            nrow = 2, ncol = 1,
+                            labels = "AUTO")
+
+## Fig. S2.1
+FigS2.1 <- cowplot::plot_grid(p7$plot_or, p8$plot_or, 
+                              nrow = 2, ncol = 1,
+                              labels = "AUTO")
 
 ### EXPERIMENTAL: CLUSTERING AND NETWORK ANALYSIS -----------------------------
 # # make list where each element is a unique patient with a character vector of propagated HPO terms
@@ -532,12 +579,30 @@ Fig2
 
 dev.off()
 
+# Figure 2.1: High-level phenotypic term Odds Ratio plots, same groups as Figure 2
+pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig2.1.pdf",
+    width = 12,
+    height = 4.5)
+
+Fig2.1
+
+dev.off()
+
 # Figure 3: Longitudinal plots.
 pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig3.pdf",
     width = 12,
     height = 15)
 
 Fig3
+
+dev.off()
+
+# Figure 3: As in Figure 3, but with log OR on y-axis
+pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig3.1.pdf",
+    width = 12,
+    height = 15)
+
+Fig3.1
 
 dev.off()
 
@@ -554,11 +619,29 @@ FigS1
 
 dev.off()
 
+# Figure S1.1: As Figure 2.1, but with non-genetic matches.
+pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/FigS1.1.pdf",
+    width = 8,
+    height = 4.5)
+
+FigS1.1
+
+dev.off()
+
 # Figure S2: As Figure 3, but with non-genetic matches.
 pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/FigS2.pdf",
     width = 12,
     height = 10)
 
 FigS2
+
+dev.off()
+
+# Figure S2: As Figure S2, but with log OR on y-axis
+pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/FigS2.1.pdf",
+    width = 12,
+    height = 10)
+
+FigS2.1
 
 dev.off()
