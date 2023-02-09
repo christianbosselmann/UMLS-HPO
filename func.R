@@ -142,6 +142,9 @@ enrichmentPlot <- function(data,
       xlab("Odds ratio (95% CI, log scale)")
   }
   
+  QQ.plot(concept_vis_input.df3$pvalue)
+  abline(v = -log10(0.05), col = "blue")
+  
   return(res)
 }
 
@@ -459,6 +462,10 @@ longitudinalPlot <- function(df_genes, df_match1, show_legend = "none", fix_x = 
   # get n most significant terms per bin
   ls_p1 <- list()
   for(i in 1:length(ls_m1)){
+    # check if bin contains observations for both groups
+    # this is not the case, skip this bin
+    if(length(table(ls_m1[[i]]$group)) == 1){next}
+    
     df_group <- ls_m1[[i]] %>%
       select(PatientId, group, prop_terms) %>%
       unnest(cols = c(prop_terms)) %>%
@@ -472,11 +479,6 @@ longitudinalPlot <- function(df_genes, df_match1, show_legend = "none", fix_x = 
     
     # merge in description
     df_group <- left_join(df_group, desc_map, by = "term")
-    
-    # check if tbin contains any case observations
-    # this is not the case for the CDKL5 cohort, due to sample size limitations
-    # if true, then skip this bin
-    if(is.null(df_group$Y)){next}
     
     # df_group can also be used for enrichment plots
     df_group <- df_group %>% 

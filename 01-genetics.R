@@ -26,6 +26,10 @@ librarian::shelf(tidyverse,
 # functions
 source("func.R")
 
+### PARAMETERS ----------------------------------------------------------------
+# matching method for matchit
+flag_match <- "nearest"
+
 ### ONTOLOGY -------------------------------------------------------------------
 # load ontologyIndex object
 ont_hpo <- get_ontology("hp.obo.txt", 
@@ -128,11 +132,14 @@ df_match1 <- df_match %>%
                          "scn1a" = 1,
                          "cdkl5" = 1)) 
 
+tmp <- df_match1
+
 df_match1 <- matchit(status ~ median_age + Ethnicity + Gender, 
                      data = df_match1, ratio = 1,
-                     method = "nearest", distance = "glm")
+                     method = flag_match, distance = "glm")
 
-df_match1 <- match.data(df_match1)
+# df_match1 <- match.data(df_match1)
+df_match1 <- match.data(df_match1, data = tmp)
 
 df_match1 <- df_match1 %>%
   # merge in ConceptIDs
@@ -159,7 +166,7 @@ df_match2 <- df_match %>%
 
 df_match2 <- matchit(status ~ median_age + Ethnicity + Gender, 
                      data = df_match2, ratio = 1,
-                     method = "nearest", distance = "glm")
+                     method = flag_match, distance = "glm")
 
 df_match2 <- match.data(df_match2)
 
@@ -188,7 +195,7 @@ df_match3 <- df_match %>%
 
 df_match3 <- matchit(status ~ median_age + Ethnicity + Gender, 
                      data = df_match3, ratio = 1,
-                     method = "nearest", distance = "glm")
+                     method = flag_match, distance = "glm")
 
 df_match3 <- match.data(df_match3)
 
@@ -216,7 +223,7 @@ df_match4 <- df_match %>%
 
 df_match4 <- matchit(status ~ median_age + Ethnicity + Gender, 
                      data = df_match4, ratio = 1,
-                     method = "nearest", distance = "glm")
+                     method = flag_match, distance = "glm")
 
 df_match4 <- match.data(df_match4)
 
@@ -244,7 +251,7 @@ df_match5 <- df_match %>%
 
 df_match5 <- matchit(status ~ median_age + Ethnicity + Gender, 
                      data = df_match5, ratio = 1,
-                     method = "nearest", distance = "glm")
+                     method = flag_match, distance = "glm")
 
 df_match5 <- match.data(df_match5)
 
