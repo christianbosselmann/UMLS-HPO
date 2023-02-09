@@ -40,15 +40,17 @@ enrichmentPlot <- function(data,
   concept_vis_input.df3 <- df_group %>% 
     mutate(Y_out = Y_tot-Y,
            N_out = N_tot-N) %>% 
-    mutate(pvalue = fish_test_it(Y,Y_out,N,N_out,"pvalue"),
-           odds = fish_test_it(Y,Y_out,N,N_out,"odds"),
+    mutate(pvalue = fish_test_it(Y, Y_out,N, N_out, "pvalue"),
+           odds = fish_test_it(Y, Y_out, N, N_out, "odds"),
            freq1 = Y/Y_tot,
            freq2 = N/N_tot,
            color_sig = ifelse(p.adjust(pvalue, "holm") < 0.001, "<", ">"),
-           size_sel = -log10(pvalue)*4) 
+           size_sel = -log10(pvalue)*4) %>%
+    mutate(pvalue = p.adjust(pvalue, "holm"))
   # %>%
   #   filter(freq1 > 0.05 | freq2 > 0.05) # minimum term frequency filter
   
+  # keep dataframe
   res$data <- concept_vis_input.df3
   
   max_freq <- c(concept_vis_input.df3$freq1, concept_vis_input.df3$freq2) %>% max() 
@@ -78,8 +80,7 @@ enrichmentPlot <- function(data,
           axis.line = element_line(color = "black")) +
     guides(color = "none")
   
-  # we can also use this function to return a Forest plot
-  
+  # optional: return a Forest plot
   if(forest == TRUE){
     # redo OR with confidence interval, assign to preallocated dataframe
     concept_odds <- data.frame(OR = 1:nrow(concept_vis_input.df3),
@@ -112,7 +113,7 @@ enrichmentPlot <- function(data,
     # min_set <- ontologyIndex::minimal_set(ont_hpo, df_concept$term)
     # df_concept <- df_concept[df_concept$term %in% min_set, ]
     
-    # filter: custom terms to display
+    # filter: custom terms to display on Forest plot
     vec_terms <- c("Neurodevelopmental abnormality",
                    "Abnormality of metabolism/homeostasis",
                    "Abnormality of prenatal development or birth",
@@ -486,7 +487,8 @@ longitudinalPlot <- function(df_genes, df_match1, show_legend = "none", fix_x = 
              freq1 = Y/max(df_group$Y),
              freq2 = N/max(df_group$N),
              color_sig = ifelse(p.adjust(pvalue, "holm") < 0.05, "<", ">"),
-             size_sel = -log10(pvalue)*4)
+             size_sel = -log10(pvalue)*4) %>%
+      mutate(pvalue = p.adjust(pvalue, "holm"))
     
     # filter by positive ORs: we only want observations for the cases
     df_group <- df_group %>%
