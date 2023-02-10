@@ -147,10 +147,11 @@ df_match1 <- matchit(status ~ median_age + Ethnicity + Gender,
 
 df_match1 <- match.data(df_match1)
 
+# optional: downsample number of encounters per patient to control for group diff.
 df_match1 <- downsampleMatch(df_match1, df)
 
 df_match1 <- df_match1 %>%
-  # # merge in ConceptIDs
+  # # merge in ConceptIDs; not done after downsampling
   # left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
   # merge in propagated HPO terms
   left_join(hpo_map, by = "ConceptID") %>%
@@ -394,10 +395,16 @@ df_encounters_freq <- df_encounters_freq %>%
   summarize(mean = mean(n), sd = sd(n))
 
 p9 <- df_encounters_freq %>%
+  mutate(ymin = mean-sd, ymax = mean+sd) %>%
   ggplot(aes(x = bin-1, y = mean, color = GENEPOS_comb, fill = GENEPOS_comb)) +
-  geom_smooth(se = TRUE) + 
+  geom_smooth(se = TRUE) +
+  # geom_ribbon(aes(ymin = ymin, ymax = ymax, alpha = 0.1)) +
   theme_classic() +
-  coord_cartesian(xlim = c(0, 25), expand = FALSE) +
+  guides(fill = guide_legend(title = "Group"),
+         color = guide_legend(title = "Group")) +
+  scale_color_brewer(palette = "Dark2") +
+  scale_fill_brewer(palette = "Dark2") +
+  coord_cartesian(xlim = c(0, 24), expand = FALSE) +
   ylab("Mean number of encounters") +
   xlab("Age (years)")
 
@@ -427,9 +434,22 @@ p10 <- df_encounters_age %>%
   geom_point() +
   geom_smooth() +
   theme_classic() +
+  guides(fill = guide_legend(title = "Group"),
+         color = guide_legend(title = "Group")) +
+  scale_color_brewer(palette = "Dark2") +
+  scale_fill_brewer(palette = "Dark2") +
   coord_cartesian(xlim = c(0, 25), expand = FALSE) +
   ylab("Mean number of concepts per encounter") +
   xlab("Age (years)")
+
+## Fig. S3
+p9l <- cowplot::get_legend(p9 + theme(legend.box.margin = margin(0, 0, 0, 12)))
+FigS3 <- cowplot::plot_grid(p9 + theme(legend.position = "none"), 
+                            p10 + theme(legend.position = "none"), 
+                            p9l,
+                            rel_widths = c(0.45, 0.45, 0.1),
+                            nrow = 1,
+                            labels = c("A", "B", ""))
 
 ### ENRICHMENT PLOTS -----------------------------------------------------------
 ## Group 1: genetic vs. non-genetic
@@ -729,3 +749,13 @@ pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/FigS2.1.p
 FigS2.1
 
 dev.off()
+
+# Figure S3: Mean number of encounters and concepts per encounter per group
+pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/FigS3.pdf",
+    width = 12,
+    height = 4.5)
+
+FigS3
+
+dev.off()
+
