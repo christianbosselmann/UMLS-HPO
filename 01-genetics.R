@@ -119,7 +119,7 @@ df_genes_mapped <- df_genes %>%
 # get term information content
 vec_ic <- split(df_genes_mapped, df_genes_mapped$PatientId, df_genes_mapped$term) %>%
   lapply(function(x){x <- x$term}) %>%
-  get_term_info_content(ontology, ., patch_missing = FALSE) 
+  get_term_info_content(ont_hpo, ., patch_missing = FALSE) 
 
 df_ic <- data.frame(term = names(vec_ic), ic = vec_ic)
 
@@ -145,12 +145,13 @@ df_match1 <- matchit(status ~ median_age + Ethnicity + Gender,
                      data = df_match1, ratio = 1,
                      method = flag_match, distance = "glm")
 
-# df_match1 <- match.data(df_match1)
-df_match1 <- match.data(df_match1, data = tmp)
+df_match1 <- match.data(df_match1)
+
+df_match1 <- downsampleMatch(df_match1, df)
 
 df_match1 <- df_match1 %>%
-  # merge in ConceptIDs
-  left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
+  # # merge in ConceptIDs
+  # left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
   # merge in propagated HPO terms
   left_join(hpo_map, by = "ConceptID") %>%
   rename(term = name) %>%
@@ -177,9 +178,11 @@ df_match2 <- matchit(status ~ median_age + Ethnicity + Gender,
 
 df_match2 <- match.data(df_match2)
 
+df_match2 <- downsampleMatch(df_match2, df)
+
 df_match2 <- df_match2 %>%
-  # merge in ConceptIDs
-  left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
+  # # merge in ConceptIDs
+  # left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
   # merge in propagated HPO terms
   left_join(hpo_map, by = "ConceptID") %>%
   rename(term = name) %>%
@@ -206,9 +209,11 @@ df_match3 <- matchit(status ~ median_age + Ethnicity + Gender,
 
 df_match3 <- match.data(df_match3)
 
+df_match3 <- downsampleMatch(df_match3, df)
+
 df_match3 <- df_match3 %>%
-  # merge in ConceptIDs
-  left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
+  # # merge in ConceptIDs
+  # left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
   # merge in propagated HPO terms
   left_join(hpo_map, by = "ConceptID") %>%
   rename(term = name) %>%
@@ -234,9 +239,11 @@ df_match4 <- matchit(status ~ median_age + Ethnicity + Gender,
 
 df_match4 <- match.data(df_match4)
 
+df_match4 <- downsampleMatch(df_match4, df)
+
 df_match4 <- df_match4 %>%
-  # merge in ConceptIDs
-  left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
+  # # merge in ConceptIDs
+  # left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
   # merge in propagated HPO terms
   left_join(hpo_map, by = "ConceptID") %>%
   rename(term = name) %>%
@@ -262,9 +269,11 @@ df_match5 <- matchit(status ~ median_age + Ethnicity + Gender,
 
 df_match5 <- match.data(df_match5)
 
+df_match5 <- downsampleMatch(df_match5, df)
+
 df_match5 <- df_match5 %>%
-  # merge in ConceptIDs
-  left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
+  # # merge in ConceptIDs
+  # left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
   # merge in propagated HPO terms
   left_join(hpo_map, by = "ConceptID") %>%
   rename(term = name) %>%

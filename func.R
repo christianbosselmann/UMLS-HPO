@@ -602,3 +602,59 @@ longitudinalPlot <- function(df_genes, df_match1,
   return(res)
 }
 
+#' This function takes a dataframe of {PatientId, status} and a dataframe
+#' of {PatientId, ConceptID and ContactAge}, merges them and finds the number of
+#' encounters per patient per group; encounters from the majority group are
+#' downsampled to correct for encounter frequency imbalance in the dataset
+#' @param df_match1 dataframe of matched case-control pairs
+#' @param df essentially a lookup table of ContactAge and ConceptID by PatientId
+#' @param verbose logical flag; whether to print the group imbalance to the console
+#' @returns df_ss dataframe like df_match1, downsampled to equal groups
+downsampleMatch <- function(df_match1, df, 
+                            verbose = TRUE){
+df_ss <- df_match1 %>%
+  left_join(df[ ,c("PatientId", "ContactAge", "ConceptID")], by = "PatientId") 
+
+# recode ContactAge as unique values (encounters) per PatientId
+df_ss <- df_ss %>%
+  group_by(PatientId, ContactAge) %>%
+  nest(ConceptID = c(ConceptID))
+
+# find the number of unique encounters per patient
+vec_imb <- df_ss %>%
+  ungroup() %>%
+  group_by(status, PatientId) %>%
+  mutate(mean = mean(n_distinct(ContactAge)))
+
+# find the mean number of unique encounters per group
+vec_imb <- vec_imb %>%
+  group_by(status) %>%
+  summarize(mean = mean(mean))
+
+# downsampling: find majority group and ratio
+label_maj <- vec_imb$status[which.max(vec_imb$mean)]
+ratio_imb <- vec_imb$mean[[which.min(vec_imb$mean)]]/vec_imb$mean[[which.max(vec_imb$mean)]]
+
+if(verbose){
+  print("Ratio of mean number of unique encounters per patient per group:")
+  print(ratio_imb)
+  }
+
+# sample a fraction of encounters per patient from the majority group
+df_ss_min <- df_ss %>% 
+  ungroup() %>%
+  filter(status == label_maj) %>%
+  slice_sample(prop = ratio_imb)
+
+# rowbind back with the minority group
+df_ss <- df_ss %>%
+  ungroup() %>%
+  filter(status != label_maj) %>%
+  rbind(df_ss_min)
+
+# unnest ConceptIDs again
+df_ss <- df_ss %>% 
+  unnest(ConceptID)
+
+return(df_ss)
+}
