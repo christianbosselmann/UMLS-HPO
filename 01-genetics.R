@@ -780,14 +780,15 @@ df_match2 %>%
 
 ### WIP
 ## Group analysis: Heatmap (OR)
-df_match7 %>%
+df_match1 %>%
   # merge in patient ID and group label
   distinct(PatientId, group) %>%
   left_join(df_med, by = "PatientId") %>%
   na.omit %>%
-  # adjust binwidth here; line optional
-  mutate(YearsPrescription = cut(YearsPrescription, 
-                                 breaks=c(0, 6, 12, 18, 99), include.lowest=TRUE)) %>%
+  # # adjust binwidth here; line optional
+  mutate(YearsPrescription = cut_number(YearsPrescription, 5)) %>%
+  # mutate(YearsPrescription = cut(YearsPrescription, 
+  #                                breaks=c(0, 6, 12, 18, 99), include.lowest=TRUE)) %>%
   # count ASM prescription per group; for each age bin (year)
   group_by(group, MED_NAME, YearsPrescription) %>%
   summarize(test = n()) %>%
