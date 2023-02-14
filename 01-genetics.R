@@ -660,7 +660,7 @@ asm_vec <- readxl::read_excel("~/Desktop/CCF/EMR cohort study/Surgery cohort/dat
 
 # match by AES and FDA lookup tables
 for(i in 1:length(asm_vec)){
-  ind_asm <- agrep(pattern = asm_vec[[i]], 
+  ind_asm <- agrep(pattern = asm_vec[[i]],
                    x = df_asm$MED_NAME,
                    max.distance = 1,
                    ignore.case = TRUE)
@@ -669,7 +669,7 @@ for(i in 1:length(asm_vec)){
 }
 
 for(i in 1:nrow(df_fda)){
-  ind_asm <- agrep(pattern = df_fda$PROPRIETARYNAME[[i]], 
+  ind_asm <- agrep(pattern = df_fda$PROPRIETARYNAME[[i]],
                    x = df_asm$MED_NAME,
                    max.distance = 1,
                    ignore.case = TRUE)
@@ -681,10 +681,13 @@ for(i in 1:nrow(df_fda)){
 vec_asm <- df_asm %>%
   mutate(MED_NAME = case_when(str_detect(MED_NAME, regex('vimpat', ignore_case = T)) ~ 'lacosamide',
                               str_detect(MED_NAME, regex('lacosamide', ignore_case = T)) ~ 'lacosamide', 
+                              str_detect(MED_NAME, regex('banzel', ignore_case = T)) ~ 'rufinamide',
                               str_detect(MED_NAME, regex('tegretol', ignore_case = T)) ~ 'carbamazepine',
+                              str_detect(MED_NAME, regex('carbatrol', ignore_case = T)) ~ 'carbamazepine',
                               str_detect(MED_NAME, regex('topamax', ignore_case = T)) ~ 'topiramate',
                               str_detect(MED_NAME, regex('qudexy', ignore_case = T)) ~ 'topiramate',
                               str_detect(MED_NAME, regex('trokendi', ignore_case = T)) ~ 'topiramate',
+                              str_detect(MED_NAME, regex('eprontia', ignore_case = T)) ~ 'topiramate',
                               str_detect(MED_NAME, regex('spritam', ignore_case = T)) ~ 'levetiracetam',
                               str_detect(MED_NAME, regex('keppra', ignore_case = T)) ~ 'levetiracetam',
                               str_detect(MED_NAME, regex('sympazan', ignore_case = T)) ~ 'clobazam',
@@ -694,9 +697,11 @@ vec_asm <- df_asm %>%
                               str_detect(MED_NAME, regex('lyrica', ignore_case = T)) ~ 'pregabalin',
                               str_detect(MED_NAME, regex('pregabalin', ignore_case = T)) ~ 'pregabalin',
                               str_detect(MED_NAME, regex('zonis', ignore_case = T)) ~ 'zonisamide',
+                              str_detect(MED_NAME, regex('zoneg', ignore_case = T)) ~ 'zonisamide',
                               str_detect(MED_NAME, regex('valtoco', ignore_case = T)) ~ 'diazepam',
+                              str_detect(MED_NAME, regex('diastat', ignore_case = T)) ~ 'diazepam',
                               str_detect(MED_NAME, regex('valpro', ignore_case = T)) ~ 'valproic acid',
-                              str_detect(MED_NAME, regex('depakote', ignore_case = T)) ~ 'valproic acid',
+                              str_detect(MED_NAME, regex('depak', ignore_case = T)) ~ 'valproic acid',
                               str_detect(MED_NAME, regex('lacosamide', ignore_case = T)) ~ 'lacosamide',
                               str_detect(MED_NAME, regex('fycompa', ignore_case = T)) ~ 'perampanel',
                               str_detect(MED_NAME, regex('perampanel', ignore_case = T)) ~ 'perampanel',
@@ -704,6 +709,7 @@ vec_asm <- df_asm %>%
                               str_detect(MED_NAME, regex('fenfluramine', ignore_case = T)) ~ 'fenfluramine',
                               str_detect(MED_NAME, regex('lamot', ignore_case = T)) ~ 'lamotrigine',
                               str_detect(MED_NAME, regex('oxc', ignore_case = T)) ~ 'oxcarbazepine',
+                              str_detect(MED_NAME, regex('trileptal', ignore_case = T)) ~ 'oxcarbazepine',
                               str_detect(MED_NAME, regex('loraz', ignore_case = T)) ~ 'lorazepam',
                               str_detect(MED_NAME, regex('viga', ignore_case = T)) ~ 'vigabatrin',
                               str_detect(MED_NAME, regex('tiagab', ignore_case = T)) ~ 'tiagabine',
@@ -711,16 +717,18 @@ vec_asm <- df_asm %>%
                               str_detect(MED_NAME, regex('primid', ignore_case = T)) ~ 'primidone',
                               str_detect(MED_NAME, regex('phenyt', ignore_case = T)) ~ 'phenytoin',
                               str_detect(MED_NAME, regex('phenobarb', ignore_case = T)) ~ 'phenobarbital',
-                              str_detect(MED_NAME, regex('gabapentin', ignore_case = T)) ~ 'gabapentin',
+                              str_detect(MED_NAME, regex('gaba', ignore_case = T)) ~ 'gabapentin',
                               str_detect(MED_NAME, regex('felb', ignore_case = T)) ~ 'felbamate',
                               str_detect(MED_NAME, regex('everol', ignore_case = T)) ~ 'everolimus',
                               str_detect(MED_NAME, regex('ethosux', ignore_case = T)) ~ 'ethosumixide',
+                              str_detect(MED_NAME, regex('zaront', ignore_case = T)) ~ 'ethosumixide',
                               str_detect(MED_NAME, regex('cenoba', ignore_case = T)) ~ 'cenobamate',
                               str_detect(MED_NAME, regex('xcopri', ignore_case = T)) ~ 'cenobamate',
                               str_detect(MED_NAME, regex('cannab', ignore_case = T)) ~ 'cannabidiol',
                               str_detect(MED_NAME, regex('epidiolex', ignore_case = T)) ~ 'cannabidiol',
                               str_detect(MED_NAME, regex('briv', ignore_case = T)) ~ 'brivaracetam',
                               str_detect(MED_NAME, regex('stiri', ignore_case = T)) ~ 'stiripentol',
+                              str_detect(MED_NAME, regex('celontin', ignore_case = T)) ~ 'mesuximide',
                               str_detect(MED_NAME, regex('eslicarbazepine', ignore_case = T)) ~ 'eslicarbazepine acetate')) %>%
   pull(MED_NAME)
 
@@ -748,8 +756,8 @@ df_med <- df_med %>%
   mutate(n_unique_asm = n_distinct(MED_NAME)) %>% # number of unique ASMs per patient
   mutate(n_all_prescriptions = n_distinct(MonthsPrescription)) # number of all prescriptions per patient
 
-## Group analysis: Heatmap
-df_match6 %>%
+## Group analysis: Heatmap (absolute)
+df_match2 %>%
   distinct(PatientId, group) %>%
   left_join(df_med, by = "PatientId") %>%
   filter(group == TRUE) %>%
@@ -769,7 +777,58 @@ df_match6 %>%
   xlab("Age (years)") +
   scale_fill_gradientn(colors = hcl.colors(20, "Temps")) +
   coord_fixed()
-  
+
+### WIP
+## Group analysis: Heatmap (OR)
+df_match7 %>%
+  # merge in patient ID and group label
+  distinct(PatientId, group) %>%
+  left_join(df_med, by = "PatientId") %>%
+  na.omit %>%
+  # adjust binwidth here; line optional
+  mutate(YearsPrescription = cut(YearsPrescription, 
+                                 breaks=c(0, 6, 12, 18, 99), include.lowest=TRUE)) %>%
+  # count ASM prescription per group; for each age bin (year)
+  group_by(group, MED_NAME, YearsPrescription) %>%
+  summarize(test = n()) %>%
+  # prepare Fisher's test
+  pivot_wider(names_from = group, values_from = test) %>%
+  rename(N = `FALSE`, Y = `TRUE`) %>%
+  # force complete all cases
+  complete(MED_NAME, YearsPrescription) %>%
+  replace(is.na(.), 0) %>%
+  mutate(N_out = max(N)-N, 
+         Y_out = max(Y)-Y) %>%
+  rowwise() %>%
+  # do Fisher's test
+  mutate(P = fisher.test(matrix(c(Y, Y_out, N, N_out), nrow = 2, ncol = 2))$p.value,
+         OR = fisher.test(matrix(c(Y, Y_out, N, N_out), nrow = 2, ncol = 2))$estimate,
+         CI1 = fisher.test(matrix(c(Y, Y_out, N, N_out), nrow = 2, ncol = 2))$conf.int[[1]],
+         CI2 = fisher.test(matrix(c(Y, Y_out, N, N_out), nrow = 2, ncol = 2))$conf.int[[2]]) %>%
+  # adjust for multiple testing
+  mutate(P = p.adjust(P, method = "bonferroni")) %>%
+  # # force OR with insignificant pvalues to be NA
+  # mutate(OR = ifelse(P > 0.05, NA, OR)) %>%
+  # plot
+  ggplot(aes(x = YearsPrescription, 
+             y = factor(MED_NAME, levels = asm_vec[asm_vec %in% df_asm$MED_NAME]), 
+             fill = log10(OR))) + 
+  scale_y_discrete(drop = FALSE) +
+  geom_tile(color = "black") +
+  theme_classic() +
+  ylab("") +
+  xlab("Age (years)") +
+  # scale_fill_gradientn(colors = hcl.colors(20, "Temps"),
+  #                      na.value = "darkgrey") +
+  scale_fill_gradient2(low = "#00b4fb",
+                       mid = "#F5F5F5",
+                       high = "#ff8422",
+                       midpoint = 0, # adjust based on OR or log OR
+                       na.value = "#F5F5F5",
+                       limits = c(-2, 2),
+                       oob = scales::squish) +
+  coord_fixed()
+
 ### GENERATE REPORT -----------------------------------------------------------
 ## Figure 1: Descriptive statistics of the study cohort.
 p_tmp <- cowplot::plot_grid(p2 + scale_x_discrete(labels=c("Non-genetic", "Genetic")), 
