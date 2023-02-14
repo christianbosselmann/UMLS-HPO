@@ -754,11 +754,9 @@ df_match6 %>%
   left_join(df_med, by = "PatientId") %>%
   filter(group == TRUE) %>%
   na.omit %>%
-  # count the number of patients who have received each ASM
-  group_by(MED_NAME) %>%
-  mutate(count = n_distinct(PatientId)) %>%
-  group_by(YearsPrescription) %>%
-  mutate(freq = scales::rescale(count)) %>%
+  # count the number of patients who have received each ASM by year
+  group_by(MED_NAME, YearsPrescription) %>%
+  mutate(freq = n_distinct(PatientId)) %>%
   ungroup() %>%
   # plot
   ggplot(aes(x = YearsPrescription, 
@@ -769,26 +767,9 @@ df_match6 %>%
   theme_classic() +
   ylab("") +
   xlab("Age (years)") +
-  scale_fill_gradientn(colors = hcl.colors(20, "RdYlGn")) +
+  scale_fill_gradientn(colors = hcl.colors(20, "Temps")) +
   coord_fixed()
   
-## Group analysis: Stacked density
-df_match1 %>%
-  # merge in group membership
-  distinct(PatientId, group) %>%
-  left_join(df_med, by = "PatientId") %>%
-  # only keep observations from our case group
-  filter(group == TRUE) %>%
-  # only show top n ASMs
-  add_count(MED_NAME) %>% 
-  filter(n %in% tail(sort(unique(n)), 8)) %>%
-  # plot
-  ggplot() +
-  geom_density(aes(x = YearsPrescription, group = MED_NAME, fill = MED_NAME), 
-               adjust = 1.5, position = "fill") +
-  # scale_fill_manual(values = RColorBrewer::brewer.pal(8, "Dark2")) +
-  theme_classic() 
-
 ### GENERATE REPORT -----------------------------------------------------------
 ## Figure 1: Descriptive statistics of the study cohort.
 p_tmp <- cowplot::plot_grid(p2 + scale_x_discrete(labels=c("Non-genetic", "Genetic")), 
