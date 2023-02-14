@@ -23,7 +23,8 @@ librarian::shelf(tidyverse,
                  kernlab,
                  Spectrum,
                  CGEN,
-                 egg)
+                 egg,
+                 scales)
 
 # functions
 source("func.R")
@@ -641,6 +642,153 @@ plong6 <- longitudinalPlot(df_genes, df_match6, odds_plot = TRUE)
 ## Group 7
 plong7 <- longitudinalPlot(df_genes, df_match7, odds_plot = TRUE)
 
+### MEDICATION ANALYSIS -------------------------------------------------------
+## Data and Preprocessing
+# load data: list of patient medical record IDs and prescriptions
+df_asm <-  readxl::read_excel("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/Medication_history.xlsx") %>%
+  filter(MED_PHARM_CLASS_DESC %like% "ANTICONVULSANT")
+
+# load data: FDA NDC database
+df_fda <- readxl::read_excel("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/ndcxls.xlsx")
+df_fda <- df_fda[df_fda$PHARM_CLASSES %like% "epilept", ] %>%
+  distinct(PROPRIETARYNAME, NONPROPRIETARYNAME)
+
+# source: AES Summary of Antiseizure Medications Available in the United States: 2020 Update
+# https://www.aesnet.org/docs/default-source/pdfs-clinical/2020-september-aes_summary_of_asms.pdf?sfvrsn=c1a0ed0b_2
+asm_vec <- readxl::read_excel("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/ASM list.xlsx", col_names = FALSE) %>%
+  pull()
+
+# match by AES and FDA lookup tables
+for(i in 1:length(asm_vec)){
+  ind_asm <- agrep(pattern = asm_vec[[i]], 
+                   x = df_asm$MED_NAME,
+                   max.distance = 1,
+                   ignore.case = TRUE)
+  
+  df_asm[ind_asm,]$MED_NAME <- asm_vec[[i]]
+}
+
+for(i in 1:nrow(df_fda)){
+  ind_asm <- agrep(pattern = df_fda$PROPRIETARYNAME[[i]], 
+                   x = df_asm$MED_NAME,
+                   max.distance = 1,
+                   ignore.case = TRUE)
+  
+  df_asm[ind_asm,]$MED_NAME <- df_fda$NONPROPRIETARYNAME[[i]]
+}
+
+# manual recoding
+vec_asm <- df_asm %>%
+  mutate(MED_NAME = case_when(str_detect(MED_NAME, regex('vimpat', ignore_case = T)) ~ 'lacosamide',
+                              str_detect(MED_NAME, regex('lacosamide', ignore_case = T)) ~ 'lacosamide', 
+                              str_detect(MED_NAME, regex('tegretol', ignore_case = T)) ~ 'carbamazepine',
+                              str_detect(MED_NAME, regex('topamax', ignore_case = T)) ~ 'topiramate',
+                              str_detect(MED_NAME, regex('qudexy', ignore_case = T)) ~ 'topiramate',
+                              str_detect(MED_NAME, regex('trokendi', ignore_case = T)) ~ 'topiramate',
+                              str_detect(MED_NAME, regex('spritam', ignore_case = T)) ~ 'levetiracetam',
+                              str_detect(MED_NAME, regex('keppra', ignore_case = T)) ~ 'levetiracetam',
+                              str_detect(MED_NAME, regex('sympazan', ignore_case = T)) ~ 'clobazam',
+                              str_detect(MED_NAME, regex('onfi', ignore_case = T)) ~ 'clobazam',
+                              str_detect(MED_NAME, regex('nayzilam', ignore_case = T)) ~ 'midazolam',
+                              str_detect(MED_NAME, regex('klonopin', ignore_case = T)) ~ 'clonazepam',
+                              str_detect(MED_NAME, regex('lyrica', ignore_case = T)) ~ 'pregabalin',
+                              str_detect(MED_NAME, regex('pregabalin', ignore_case = T)) ~ 'pregabalin',
+                              str_detect(MED_NAME, regex('zonis', ignore_case = T)) ~ 'zonisamide',
+                              str_detect(MED_NAME, regex('valtoco', ignore_case = T)) ~ 'diazepam',
+                              str_detect(MED_NAME, regex('valpro', ignore_case = T)) ~ 'valproic acid',
+                              str_detect(MED_NAME, regex('depakote', ignore_case = T)) ~ 'valproic acid',
+                              str_detect(MED_NAME, regex('lacosamide', ignore_case = T)) ~ 'lacosamide',
+                              str_detect(MED_NAME, regex('fycompa', ignore_case = T)) ~ 'perampanel',
+                              str_detect(MED_NAME, regex('perampanel', ignore_case = T)) ~ 'perampanel',
+                              str_detect(MED_NAME, regex('fintepla', ignore_case = T)) ~ 'fintepla',
+                              str_detect(MED_NAME, regex('fenfluramine', ignore_case = T)) ~ 'fenfluramine',
+                              str_detect(MED_NAME, regex('lamot', ignore_case = T)) ~ 'lamotrigine',
+                              str_detect(MED_NAME, regex('oxc', ignore_case = T)) ~ 'oxcarbazepine',
+                              str_detect(MED_NAME, regex('loraz', ignore_case = T)) ~ 'lorazepam',
+                              str_detect(MED_NAME, regex('viga', ignore_case = T)) ~ 'vigabatrin',
+                              str_detect(MED_NAME, regex('tiagab', ignore_case = T)) ~ 'tiagabine',
+                              str_detect(MED_NAME, regex('rufinam', ignore_case = T)) ~ 'rufinamide',
+                              str_detect(MED_NAME, regex('primid', ignore_case = T)) ~ 'primidone',
+                              str_detect(MED_NAME, regex('phenyt', ignore_case = T)) ~ 'phenytoin',
+                              str_detect(MED_NAME, regex('phenobarb', ignore_case = T)) ~ 'phenobarbital',
+                              str_detect(MED_NAME, regex('gabapentin', ignore_case = T)) ~ 'gabapentin',
+                              str_detect(MED_NAME, regex('felb', ignore_case = T)) ~ 'felbamate',
+                              str_detect(MED_NAME, regex('everol', ignore_case = T)) ~ 'everolimus',
+                              str_detect(MED_NAME, regex('ethosux', ignore_case = T)) ~ 'ethosumixide',
+                              str_detect(MED_NAME, regex('cenoba', ignore_case = T)) ~ 'cenobamate',
+                              str_detect(MED_NAME, regex('xcopri', ignore_case = T)) ~ 'cenobamate',
+                              str_detect(MED_NAME, regex('cannab', ignore_case = T)) ~ 'cannabidiol',
+                              str_detect(MED_NAME, regex('epidiolex', ignore_case = T)) ~ 'cannabidiol',
+                              str_detect(MED_NAME, regex('briv', ignore_case = T)) ~ 'brivaracetam',
+                              str_detect(MED_NAME, regex('stiri', ignore_case = T)) ~ 'stiripentol',
+                              str_detect(MED_NAME, regex('eslicarbazepine', ignore_case = T)) ~ 'eslicarbazepine acetate')) %>%
+  pull(MED_NAME)
+
+# merge matches, drop non-matched rows and unneeded columns
+df_asm$MED_NAME <- vec_asm
+
+df_asm <- df_asm[df_asm$MED_NAME %in% asm_vec, ] %>%
+  select(MedicalRecordNumber, MED_NAME, MED_START_DATE, ORD_MODE_DESC)
+
+# merge in Patient Ids and DOB by MRN, fix date
+df_lookup <- df_raw %>%
+  distinct(PatientId, MedicalRecordNumber, DateOfBirth)
+
+df_med <- df_asm %>%
+  left_join(df_lookup[ ,c("PatientId", "MedicalRecordNumber", "DateOfBirth")], by = "MedicalRecordNumber") %>%
+  mutate(DateOfBirth = lubridate::mdy(DateOfBirth)) %>%
+  mutate(MED_START_DATE = lubridate::as_date(MED_START_DATE)) %>%
+  mutate(AgePrescription = difftime(MED_START_DATE, DateOfBirth, units = "days")) %>%
+  mutate(MonthsPrescription = as.numeric(round(AgePrescription/30, 0))) %>%
+  mutate(YearsPrescription = as.numeric(round(AgePrescription/365, 0)))
+
+## Descriptive stats
+df_med <- df_med %>%
+  group_by(PatientId) %>%
+  mutate(n_unique_asm = n_distinct(MED_NAME)) %>% # number of unique ASMs per patient
+  mutate(n_all_prescriptions = n_distinct(MonthsPrescription)) # number of all prescriptions per patient
+
+## Group analysis: Heatmap
+df_match6 %>%
+  distinct(PatientId, group) %>%
+  left_join(df_med, by = "PatientId") %>%
+  filter(group == TRUE) %>%
+  na.omit %>%
+  # count the number of patients who have received each ASM
+  group_by(MED_NAME) %>%
+  mutate(count = n_distinct(PatientId)) %>%
+  group_by(YearsPrescription) %>%
+  mutate(freq = scales::rescale(count)) %>%
+  ungroup() %>%
+  # plot
+  ggplot(aes(x = YearsPrescription, 
+             y = factor(MED_NAME, levels = asm_vec[asm_vec %in% df_asm$MED_NAME]), 
+             fill = freq)) + 
+  scale_y_discrete(drop = FALSE) +
+  geom_tile(color = "black") +
+  theme_classic() +
+  ylab("") +
+  xlab("Age (years)") +
+  scale_fill_gradientn(colors = hcl.colors(20, "RdYlGn")) +
+  coord_fixed()
+  
+## Group analysis: Stacked density
+df_match1 %>%
+  # merge in group membership
+  distinct(PatientId, group) %>%
+  left_join(df_med, by = "PatientId") %>%
+  # only keep observations from our case group
+  filter(group == TRUE) %>%
+  # only show top n ASMs
+  add_count(MED_NAME) %>% 
+  filter(n %in% tail(sort(unique(n)), 8)) %>%
+  # plot
+  ggplot() +
+  geom_density(aes(x = YearsPrescription, group = MED_NAME, fill = MED_NAME), 
+               adjust = 1.5, position = "fill") +
+  # scale_fill_manual(values = RColorBrewer::brewer.pal(8, "Dark2")) +
+  theme_classic() 
+
 ### GENERATE REPORT -----------------------------------------------------------
 ## Figure 1: Descriptive statistics of the study cohort.
 p_tmp <- cowplot::plot_grid(p2 + scale_x_discrete(labels=c("Non-genetic", "Genetic")), 
@@ -713,8 +861,8 @@ p_tmp <- cowplot::plot_grid(enrich2$plot +
                             nrow = 1, labels = "AUTO")
 
 Fig3.1 <- cowplot::plot_grid(p_tmp, plong2$plot, 
-                           nrow = 2,
-                           labels = c("", "C"))
+                             nrow = 2,
+                             labels = c("", "C"))
 
 pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig3.1.pdf",
     width = 12,
@@ -757,8 +905,8 @@ p_tmp <- cowplot::plot_grid(enrich3$plot +
                             nrow = 1, labels = "AUTO")
 
 Fig4.1 <- cowplot::plot_grid(p_tmp, plong3$plot + coord_cartesian(xlim = c(0, 12)), 
-                           nrow = 2,
-                           labels = c("", "C"))
+                             nrow = 2,
+                             labels = c("", "C"))
 
 pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig4.1.pdf",
     width = 12,
@@ -801,8 +949,8 @@ p_tmp <- cowplot::plot_grid(enrich7$plot +
                             nrow = 1, labels = "AUTO")
 
 Fig5.1 <- cowplot::plot_grid(p_tmp, plong7$plot, 
-                           nrow = 2,
-                           labels = c("", "C"))
+                             nrow = 2,
+                             labels = c("", "C"))
 
 pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig5.1.pdf",
     width = 12,
