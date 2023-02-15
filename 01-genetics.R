@@ -756,39 +756,50 @@ df_med <- df_med %>%
   mutate(n_unique_asm = n_distinct(MED_NAME)) %>% # number of unique ASMs per patient
   mutate(n_all_prescriptions = n_distinct(MonthsPrescription)) # number of all prescriptions per patient
 
-## Group analysis: Heatmap (absolute)
-df_match2 %>%
-  distinct(PatientId, group) %>%
-  left_join(df_med, by = "PatientId") %>%
-  filter(group == TRUE) %>%
-  na.omit %>%
-  # count the number of patients who have received each ASM by year
-  group_by(MED_NAME, YearsPrescription) %>%
-  mutate(freq = n_distinct(PatientId)) %>%
-  ungroup() %>%
-  # plot
-  ggplot(aes(x = YearsPrescription, 
-             y = factor(MED_NAME, levels = asm_vec[asm_vec %in% df_asm$MED_NAME]), 
-             fill = freq)) + 
-  scale_y_discrete(drop = FALSE) +
-  geom_tile(color = "black") +
-  theme_classic() +
-  ylab("") +
-  xlab("Age (years)") +
-  scale_fill_gradientn(colors = hcl.colors(20, "Temps")) +
-  coord_fixed()
-
-### WIP
 ## Group analysis: Heatmap (OR)
-df_match1 %>%
+# define ASM groups, cf. doi.org/10.1007/s40263-021-00827-8
+asm_map <- tibble(MED_NAME = asm_vec,
+                  MED_GROUP = NA) %>%
+  mutate(MED_GROUP = case_when(
+    str_detect(MED_NAME, regex('felbam', ignore_case = T)) ~ 'Mixed/unknown',
+    str_detect(MED_NAME, regex('valpr', ignore_case = T)) ~ 'Mixed/unknown',
+    str_detect(MED_NAME, regex('hormon', ignore_case = T)) ~ 'Mixed/unknown',
+    str_detect(MED_NAME, regex('zonis', ignore_case = T)) ~ 'Mixed/unknown',
+    str_detect(MED_NAME, regex('rufin', ignore_case = T)) ~ 'Mixed/unknown',
+    str_detect(MED_NAME, regex('cannab', ignore_case = T)) ~ 'Mixed/unknown',
+    str_detect(MED_NAME, regex('cenob', ignore_case = T)) ~ 'Mixed/unknown',
+    str_detect(MED_NAME, regex('topira', ignore_case = T)) ~ 'Mixed/unknown',
+    str_detect(MED_NAME, regex('phenyt', ignore_case = T)) ~ 'Na',
+    str_detect(MED_NAME, regex('carbamaz', ignore_case = T)) ~ 'Na',
+    str_detect(MED_NAME, regex('carbaz', ignore_case = T)) ~ 'Na',
+    str_detect(MED_NAME, regex('lamotr', ignore_case = T)) ~ 'Na',
+    str_detect(MED_NAME, regex('lacosam', ignore_case = T)) ~ 'Na',
+    str_detect(MED_NAME, regex('suxim', ignore_case = T)) ~ 'Ca',
+    str_detect(MED_NAME, regex('gabap', ignore_case = T)) ~ 'Ca',
+    str_detect(MED_NAME, regex('pregabal', ignore_case = T)) ~ 'Ca',
+    str_detect(MED_NAME, regex('phenobarb', ignore_case = T)) ~ 'GABA',
+    str_detect(MED_NAME, regex('primidon', ignore_case = T)) ~ 'GABA',
+    str_detect(MED_NAME, regex('stirip', ignore_case = T)) ~ 'GABA',
+    str_detect(MED_NAME, regex('azol', ignore_case = T)) ~ 'GABA',
+    str_detect(MED_NAME, regex('azepam', ignore_case = T)) ~ 'GABA',
+    str_detect(MED_NAME, regex('clobaz', ignore_case = T)) ~ 'GABA',
+    str_detect(MED_NAME, regex('tiaga', ignore_case = T)) ~ 'GABA',
+    str_detect(MED_NAME, regex('vigabatr', ignore_case = T)) ~ 'GABA',
+    str_detect(MED_NAME, regex('peramp', ignore_case = T)) ~ 'AMPA',
+    str_detect(MED_NAME, regex('brivara', ignore_case = T)) ~ 'SV2A',
+    str_detect(MED_NAME, regex('levetir', ignore_case = T)) ~ 'SV2A',
+    str_detect(MED_NAME, regex('fenfl', ignore_case = T)) ~ '5-HT',
+    str_detect(MED_NAME, regex('everol', ignore_case = T)) ~ 'MTOR'
+  ) )
+
+# take matched case-control set
+df_heatmap <- df_match1 %>%
   # merge in patient ID and group label
   distinct(PatientId, group) %>%
   left_join(df_med, by = "PatientId") %>%
   na.omit %>%
-  # # adjust binwidth here; line optional
+  # define bins
   mutate(YearsPrescription = cut_number(YearsPrescription, 5)) %>%
-  # mutate(YearsPrescription = cut(YearsPrescription, 
-  #                                breaks=c(0, 6, 12, 18, 99), include.lowest=TRUE)) %>%
   # count ASM prescription per group; for each age bin (year)
   group_by(group, MED_NAME, YearsPrescription) %>%
   summarize(test = n()) %>%
@@ -808,27 +819,35 @@ df_match1 %>%
          CI2 = fisher.test(matrix(c(Y, Y_out, N, N_out), nrow = 2, ncol = 2))$conf.int[[2]]) %>%
   # adjust for multiple testing
   mutate(P = p.adjust(P, method = "bonferroni")) %>%
-  # # force OR with insignificant pvalues to be NA
-  # mutate(OR = ifelse(P > 0.05, NA, OR)) %>%
-  # plot
+  # force OR with insignificant pvalues to be NA
+  mutate(OR = ifelse(P > 0.05, NA, OR)) %>%
+  # merge in group description for facets
+  left_join(asm_map, by = "MED_NAME") %>%
+  # define factor levels
+  mutate(MED_NAME = factor(MED_NAME, levels = sort(unique(asm_vec))))
+
+# plot
+df_heatmap %>%
+  mutate(MED_NAME = str_to_title(MED_NAME)) %>%
   ggplot(aes(x = YearsPrescription, 
-             y = factor(MED_NAME, levels = asm_vec[asm_vec %in% df_asm$MED_NAME]), 
+             y = MED_NAME,
              fill = log10(OR))) + 
-  scale_y_discrete(drop = FALSE) +
   geom_tile(color = "black") +
   theme_classic() +
+  facet_grid(MED_GROUP~., scales = "free_y", space = "free", 
+             switch = "y", drop = FALSE, margins = FALSE) +
+  theme(strip.placement = "outside",
+        strip.background = element_rect(fill = NA, colour = NA),
+        panel.spacing = unit(0.2, "cm")) +
   ylab("") +
   xlab("Age (years)") +
-  # scale_fill_gradientn(colors = hcl.colors(20, "Temps"),
-  #                      na.value = "darkgrey") +
   scale_fill_gradient2(low = "#00b4fb",
                        mid = "#F5F5F5",
                        high = "#ff8422",
                        midpoint = 0, # adjust based on OR or log OR
                        na.value = "#F5F5F5",
                        limits = c(-2, 2),
-                       oob = scales::squish) +
-  coord_fixed()
+                       oob = scales::squish)
 
 ### GENERATE REPORT -----------------------------------------------------------
 ## Figure 1: Descriptive statistics of the study cohort.
