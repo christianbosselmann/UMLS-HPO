@@ -46,9 +46,9 @@ enrichmentPlot <- function(data,
            odds = fish_test_it(Y, Y_out, N, N_out, "odds"),
            freq1 = Y/Y_tot,
            freq2 = N/N_tot,
-           color_sig = ifelse(p.adjust(pvalue, "holm") < 0.001, "<", ">"),
+           color_sig = ifelse(p.adjust(pvalue, "bonferroni") < 0.001, "<", ">"),
            size_sel = -log10(pvalue)*4) %>%
-    mutate(pvalue = p.adjust(pvalue, "holm"))
+    mutate(pvalue = p.adjust(pvalue, "bonferroni"))
   # %>%
   #   filter(freq1 > 0.05 | freq2 > 0.05) # minimum term frequency filter
   
@@ -140,7 +140,7 @@ enrichmentPlot <- function(data,
       expand_limits(x = 1) +
       theme_classic() +
       ylab("") +
-      xlab("Odds ratio (95% CI, log scale)")
+      xlab("Odds ratio (95% CI)")
   }
   
   # diagnostics: QQ plot
@@ -615,6 +615,10 @@ downsampleMatch <- function(df_match1, df,
 df_ss <- df_match1 %>%
   left_join(df[ ,c("PatientId", "ContactAge", "ConceptID")], by = "PatientId") 
 
+# force unique ConceptIDs per ContactAge
+df_ss <- df_ss %>%
+  distinct(PatientId, ConceptID, ContactAge, .keep_all = TRUE)
+
 # recode ContactAge as unique values (encounters) per PatientId
 df_ss <- df_ss %>%
   group_by(PatientId, ContactAge) %>%
@@ -642,7 +646,8 @@ if(verbose){
 
 # sample a fraction of encounters per patient from the majority group
 df_ss_min <- df_ss %>% 
-  ungroup() %>%
+  # ungroup() %>%
+  group_by(PatientId) %>%
   filter(status == label_maj) %>%
   slice_sample(prop = ratio_imb)
 

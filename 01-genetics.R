@@ -137,6 +137,35 @@ df_match <- df_match %>%
   mutate(Gender = as.factor(Gender)) %>%
   mutate(Ethnicity = as.factor(Ethnicity))
 
+## Group 0: non-genetic vs. non-genetic (null)
+df_match0 <- df_match %>%
+  filter(status == "nongenetic") %>%
+  mutate(status = sample(0:1, n(), replace = TRUE))
+
+df_match0 <- matchit(status ~ median_age + Ethnicity + Gender, 
+                     data = df_match0, ratio = 1,
+                     method = flag_match, distance = "glm")
+
+df_match0 <- match.data(df_match0)
+
+# optional: downsample number of encounters per patient to control for group diff.
+df_match0 <- downsampleMatch(df_match0, df)
+
+df_match0 <- df_match0 %>%
+  # # merge in ConceptIDs; not done after downsampling
+  # left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
+  # merge in propagated HPO terms
+  left_join(hpo_map, by = "ConceptID") %>%
+  rename(term = name) %>%
+  left_join(prop_map, by = "term") %>%
+  select(-term) %>%
+  rename(term = prop_terms) %>%
+  na.omit %>%
+  unnest(cols = c(term)) %>%
+  # recode for later enrichment plots
+  rename(group = status) %>%
+  mutate(group = as.logical(group))
+
 ## Group 1: genetic vs. non-genetic
 df_match1 <- df_match %>%
   mutate(status = recode(status, 
@@ -156,39 +185,6 @@ df_match1 <- match.data(df_match1)
 df_match1 <- downsampleMatch(df_match1, df)
 
 df_match1 <- df_match1 %>%
-  # # merge in ConceptIDs; not done after downsampling
-  # left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
-  # merge in propagated HPO terms
-  left_join(hpo_map, by = "ConceptID") %>%
-  rename(term = name) %>%
-  left_join(prop_map, by = "term") %>%
-  select(-term) %>%
-  rename(term = prop_terms) %>%
-  na.omit %>%
-  unnest(cols = c(term)) %>%
-  # recode for later enrichment plots
-  rename(group = status) %>%
-  mutate(group = as.logical(group))
-
-## Group 1.1: Genetic vs. Nongenetic (strict, for ASM analysis)
-df_match1.1 <- df_match %>%
-  mutate(status = recode(status, 
-                         "nongenetic" = 0,
-                         "genetic" = 1,
-                         "scn1a" = 1,
-                         "cdkl5" = 1,
-                         "tsc" = 1)) 
-
-df_match1.1 <- matchit(status ~ median_age + Ethnicity + Gender, 
-                     data = df_match1.1, ratio = 3,
-                     method = flag_match, distance = "glm")
-
-df_match1.1 <- match.data(df_match1.1)
-
-# optional: downsample number of encounters per patient to control for group diff.
-df_match1.1 <- downsampleMatch(df_match1.1, df)
-
-df_match1.1 <- df_match1.1 %>%
   # # merge in ConceptIDs; not done after downsampling
   # left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
   # merge in propagated HPO terms
@@ -426,6 +422,12 @@ p1 <- df %>%
   theme(axis.ticks.y = element_blank(),
         axis.text.y = element_blank())
 
+# stats of length of follow-up
+stats_followup <- p1$data %>%
+  mutate(dur = upper-lower) %>%
+  summarize(mean = mean(dur), median = median(dur),
+            sd = sd(dur), min = min(dur), max = max(dur))
+
 ## p2: flat violin (raincloud) plot of age at encounter
 p2 <- ggplot(data = df, aes(x = GENEPOS_comb, y = ContactAge, fill = GENEPOS_comb)) +
   geom_flat_violin(position = position_nudge(x = .1, y = 0), alpha = .8) +
@@ -481,9 +483,7 @@ df_encounters_freq <- df %>%
   group_by(PatientId) %>%
   select(-ConceptID) %>%
   distinct(PatientId, GENEPOS_comb, ContactAge) %>%
-  count(cut_width(ContactAge, width = 1, boundary = 0, labels = F)) 
-
-df_encounters_freq <- df_encounters_freq %>%
+  count(cut_width(ContactAge, width = 1, boundary = 0, labels = F)) %>%
   ungroup() %>%
   # maintain group label
   left_join(df_encounters[ ,c("GENEPOS_comb", "PatientId")], by = "PatientId") %>%
@@ -492,6 +492,22 @@ df_encounters_freq <- df_encounters_freq %>%
   group_by(bin, GENEPOS_comb) %>%
   # get mean number of encounters per bin per group
   summarize(mean = mean(n), sd = sd(n))
+
+# get pvalue for encounter freq during transition (age range 18-20 years)
+stats_encounters_freq <- df %>%
+  group_by(PatientId) %>%
+  select(-ConceptID) %>%
+  distinct(PatientId, GENEPOS_comb, ContactAge) %>%
+  count(cut_width(ContactAge, width = 1, boundary = 0, labels = F)) %>%
+  ungroup() %>%
+  # maintain group label
+  left_join(df_encounters[ ,c("GENEPOS_comb", "PatientId")], by = "PatientId") %>%
+  # fix bin label
+  rename(bin = `cut_width(ContactAge, width = 1, boundary = 0, labels = F)`) %>%
+  # age filter for transition
+  filter(bin %in% c(18, 19, 20)) %>%
+  ungroup() %>%
+  summarize(pval = t.test(n ~ GENEPOS_comb)$p.value)
 
 p4 <- df_encounters_freq %>%
   mutate(ymin = mean-sd, ymax = mean+sd) %>%
@@ -542,6 +558,15 @@ p5 <- df_encounters_age %>%
   xlab("Age (years)")
 
 ### ENRICHMENT PLOTS -----------------------------------------------------------
+## Group 0: non-genetic vs. non-genetic (null)
+enrich0 <- df_match0 %>%
+  enrichmentPlot(., ont_hpo, forest = TRUE)
+
+enrich0$plot <- enrich0$plot +
+  coord_fixed(xlim = c(0, .3), ylim = c(0, .3)) +
+  ggtitle("Null") +
+  theme(plot.title = element_text(hjust = 0.5, size = 18))
+
 ## Group 1: genetic vs. non-genetic
 enrich1 <- df_match1 %>%
   enrichmentPlot(., ont_hpo, forest = TRUE)
@@ -654,6 +679,9 @@ enrich7$plot <- enrich7$plot +
   theme(plot.title = element_text(hjust = 0.5, size = 18))
 
 ### LONGITUDINAL ANALYSIS -----------------------------------------------------
+## Group 0
+plong0 <- longitudinalPlot(df_genes, df_match0, odds_plot = TRUE)
+
 ## Group 1
 plong1 <- longitudinalPlot(df_genes, df_match1, odds_plot = TRUE)
 
