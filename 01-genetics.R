@@ -578,7 +578,7 @@ enrich1$plot$data[enrich1$plot$data$description == "Abnormality of the skeletal 
 enrich1$plot$data[enrich1$plot$data$description == "Intracranial hemorrhage", ]$expcat_text <- "Intracranial hemorrhage"
 
 enrich1$plot <- enrich1$plot +
-  coord_fixed(xlim = c(0, .3), ylim = c(0, .3)) +
+  coord_fixed(xlim = c(0, .2), ylim = c(0, .2)) +
   ggtitle("Genetic vs. Non-Genetic") +
   theme(plot.title = element_text(hjust = 0.5, size = 18))
 
@@ -814,7 +814,7 @@ df_med <- df_asm %>%
   mutate(AgePrescription = difftime(MED_START_DATE, DateOfBirth, units = "days")) %>%
   mutate(MonthsPrescription = as.numeric(round(AgePrescription/30, 0))) %>%
   mutate(YearsPrescription = as.numeric(AgePrescription/365.2425))
-  # mutate(YearsPrescription = as.numeric(round(AgePrescription/365, 0)))
+# mutate(YearsPrescription = as.numeric(round(AgePrescription/365, 0)))
 
 ## Descriptive stats
 df_med <- df_med %>%
@@ -922,7 +922,90 @@ p_asm <- df_heatmap %>%
                        limits = c(-2, 2),
                        oob = scales::oob_squish_any)
 
-### GENERATE REPORT -----------------------------------------------------------
+### NON-HPO CONCEPT ANALYSIS ---------------------------------------------------
+# the basic concept: find out how many UMLS concepts do not match to HPO terms
+# find patterns in these concepts, e.g. healthcare utilization or procedures
+
+## data
+# load UMLS concepts
+# source: nlm.nih.gov/research/umls/
+umls_map <- read.delim("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/MRCONSO.RRF",
+                       sep = "|", header = FALSE) ##saved
+
+umls_map <- umls_map %>%
+  as_tibble() %>%
+  filter(V2 == "ENG") %>%
+  distinct(V1, V15) %>%
+  rename(ConceptID = V1, ConceptDesc = V15) ##saved2
+
+# only keep one description per term (multiple vocabularies)
+umls_map <- umls_map %>%
+  group_by(ConceptID) %>%
+  filter(row_number() == 1)
+
+# anti-join UMLS vs HPO
+df_concepts <- df_genes %>%
+  ungroup %>%
+  anti_join(hpo_map, by = "ConceptID")
+
+# get concept descriptions
+# note: MRCONSO.RRF represents only a common subset of concepts; the full set of
+# the metathesaurus is impractically large for the purpose of this analysis
+# some manual annotation downstream will be necessary
+df_concepts <- df_concepts %>%
+  left_join(umls_map, by = "ConceptID")
+
+# save total number of concepts and concepts mapped to HPO
+stats_concepts <- tibble(n_all = nrow(df_genes),
+                         n_nonhpo = nrow(df_concepts)) %>%
+  mutate(ratio = n_nonhpo/n_all, diff = n_all-n_nonhpo)
+
+# find and save list of most common concepts
+df_commonconcepts <- df_concepts %>%
+  count(ConceptID, ConceptDesc) %>%
+  arrange(desc(n))
+
+# subset to matched cohort; cross-sectional for now
+df_conceptmatch <- df_match1 %>%
+  distinct(PatientId, group) %>%
+  left_join(df_concepts[, c("PatientId", "ConceptID", "ConceptDesc")], by = "PatientId") %>%
+  distinct()
+
+# count by group, then do Fisher's test
+df_conceptmatch <- df_conceptmatch %>%
+  group_by(group) %>%
+  count(ConceptID) %>%
+  pivot_wider(names_from = group, values_from = n) %>%
+  rename(N = `FALSE`, Y = `TRUE`) %>%
+  replace(is.na(.), 0) %>%
+  mutate(N_out = max(N)-N, Y_out = max(Y)-Y) %>%
+  rowwise() %>%
+  # do Fisher's test
+  mutate(P = fisher.test(matrix(c(Y, Y_out, N, N_out), nrow = 2, ncol = 2))$p.value,
+         OR = fisher.test(matrix(c(Y, Y_out, N, N_out), nrow = 2, ncol = 2))$estimate,
+         CI1 = fisher.test(matrix(c(Y, Y_out, N, N_out), nrow = 2, ncol = 2))$conf.int[[1]],
+         CI2 = fisher.test(matrix(c(Y, Y_out, N, N_out), nrow = 2, ncol = 2))$conf.int[[2]]) %>%
+  # adjust for multiple testing
+  ungroup() %>%
+  mutate(P = p.adjust(P, method = "bonferroni"))
+
+# get descriptions
+df_conceptmatch <- df_conceptmatch %>%
+  left_join(umls_map, by = "ConceptID")
+
+# df_conceptmatch %>%
+#   filter(P < 0.05) %>%
+#   view()
+
+# ## QQ plot, just for internal diagnostics
+# df_conceptmatch %>%
+#   pull(P) %>%
+#   QQ.plot() 
+# abline(v=-log10(0.05), col="blue")
+
+
+
+### GENERATE REPORT ------------------------------------------------------------
 ## Figure 1: Descriptive statistics of the study cohort.
 p_tmp <- cowplot::plot_grid(p2 + scale_x_discrete(labels=c("Non-genetic", "Genetic")), 
                             p3 + scale_x_discrete(labels=c("Non-genetic", "Genetic")), 

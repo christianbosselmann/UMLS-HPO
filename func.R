@@ -48,6 +48,7 @@ enrichmentPlot <- function(data,
            freq2 = N/N_tot,
            color_sig = ifelse(p.adjust(pvalue, "bonferroni") < 0.001, "<", ">"),
            size_sel = -log10(pvalue)*4) %>%
+    ungroup() %>%
     mutate(pvalue = p.adjust(pvalue, "bonferroni"))
   # %>%
   #   filter(freq1 > 0.05 | freq2 > 0.05) # minimum term frequency filter
@@ -497,9 +498,10 @@ longitudinalPlot <- function(df_genes, df_match1,
              odds = fish_test_it(Y, Y_out, N, N_out, "odds"),
              freq1 = Y/max(df_group$Y),
              freq2 = N/max(df_group$N),
-             color_sig = ifelse(p.adjust(pvalue, "holm") < 0.05, "<", ">"),
+             color_sig = ifelse(p.adjust(pvalue, "bonferroni") < 0.05, "<", ">"),
              size_sel = -log10(pvalue)*4) %>%
-      mutate(pvalue = p.adjust(pvalue, "holm"))
+      ungroup() %>%
+      mutate(pvalue = p.adjust(pvalue, "bonferroni"))
     
     # filter by positive ORs: we only want observations for the cases
     df_group <- df_group %>%
