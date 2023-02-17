@@ -989,21 +989,42 @@ df_conceptmatch <- df_conceptmatch %>%
   ungroup() %>%
   mutate(P = p.adjust(P, method = "bonferroni"))
 
-# get descriptions
-df_conceptmatch <- df_conceptmatch %>%
-  left_join(umls_map, by = "ConceptID")
-
-# df_conceptmatch %>%
-#   filter(P < 0.05) %>%
-#   view()
-
 # ## QQ plot, just for internal diagnostics
 # df_conceptmatch %>%
 #   pull(P) %>%
 #   QQ.plot() 
 # abline(v=-log10(0.05), col="blue")
 
+# keep significant associations
+df_conceptmatch <- df_conceptmatch %>%
+  filter(P < 0.05)
 
+# get descriptions
+df_conceptmatch <- df_conceptmatch %>%
+  left_join(umls_map, by = "ConceptID")
+
+# manual annotation
+df_conceptmatch[df_conceptmatch$ConceptID == "C0478107", ]$ConceptDesc <- "Other specified chromosome abnormalities"
+df_conceptmatch[df_conceptmatch$ConceptID == "C0476431", ]$ConceptDesc <- "Abnormal karyotype"
+df_conceptmatch[df_conceptmatch$ConceptID == "C2875116", ]$ConceptDesc <- "Other generalized epilepsy and epileptic syndromes, intractable, without status epilepticus"
+df_conceptmatch[df_conceptmatch$ConceptID == "C2910620", ]$ConceptDesc <- "Encounter for screening for cardiovascular disorders"
+df_conceptmatch[df_conceptmatch$ConceptID == "C3161331", ]$ConceptDesc <- "Unspecified intellectual disabilities"
+df_conceptmatch[df_conceptmatch$ConceptID == "C0341102", ]$ConceptDesc <- "Gastroesophageal reflux disease without esophagitis"
+df_conceptmatch[df_conceptmatch$ConceptID == "C2911172", ]$ConceptDesc <- "Other specified health status"
+df_conceptmatch[df_conceptmatch$ConceptID == "C2911188", ]$ConceptDesc <- "Other long term (current) drug therapy"
+
+# forest plot
+df_conceptmatch %>%
+  ggplot(aes(y = reorder(ConceptDesc, OR))) +
+  geom_point(aes(x = OR), shape = 15, size = 3) +
+  geom_linerange(aes(xmin = CI1, xmax = CI2)) +
+  geom_vline(xintercept = 1, linetype = "dashed") +
+  scale_x_continuous(trans = 'log10',
+                     oob = scales::oob_squish_infinite) +
+  expand_limits(x = 1) +
+  theme_classic() +
+  ylab("") +
+  xlab("Odds ratio (95% CI")
 
 ### GENERATE REPORT ------------------------------------------------------------
 ## Figure 1: Descriptive statistics of the study cohort.
@@ -1027,12 +1048,14 @@ p_tmp <- cowplot::plot_grid(enrich1$plot +
                               ggtitle("") + 
                               theme_set(theme_classic()) +
                               coord_cartesian(xlim = c(0, 0.15), ylim = c(0, 0.15)) +
-                              ylab("Genetic patients") +
-                              xlab("Non-genetic patients"), 
+                              ylab("Term encounter frequency in likely genetic patients") +
+                              xlab("Term encounter frequency in non-genetic patients"), 
                             enrich1$forest,
                             nrow = 1, labels = "AUTO")
 
-Fig2 <- cowplot::plot_grid(p_tmp, plong1$plot, 
+Fig2 <- cowplot::plot_grid(p_tmp, plong1$plot +
+                             ylab("Term association for genetic vs. non-genetic \n patients, one-tailed t-test -log10(pvalue)") +
+                             xlab("Age (years) at highest term significance, binned by group encounter frequency"), 
                            nrow = 2,
                            labels = c("", "C"))
 
