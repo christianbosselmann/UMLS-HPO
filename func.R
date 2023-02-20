@@ -138,10 +138,11 @@ enrichmentPlot <- function(data,
       geom_linerange(aes(xmin = CI1, xmax = CI2)) +
       geom_vline(xintercept = 1, linetype = "dashed") +
       scale_x_continuous(trans = 'log10') +
+      scale_y_discrete(labels = label_wrap(30)) +
       expand_limits(x = 1) +
       theme_classic() +
       ylab("") +
-      xlab("Odds ratio (95% CI)")
+      xlab("Odds ratio (95% CI, log scale)")
   }
   
   # diagnostics: QQ plot
@@ -149,7 +150,7 @@ enrichmentPlot <- function(data,
     ungroup() %>%
     pull(pvalue) %>%
     QQ.plot(.)
-
+  
   abline(v = -log10(0.05), col = "blue")
   
   return(res)
@@ -614,54 +615,101 @@ longitudinalPlot <- function(df_genes, df_match1,
 #' @returns df_ss dataframe like df_match1, downsampled to equal groups
 downsampleMatch <- function(df_match1, df, 
                             verbose = TRUE){
-df_ss <- df_match1 %>%
-  left_join(df[ ,c("PatientId", "ContactAge", "ConceptID")], by = "PatientId") 
-
-# force unique ConceptIDs per ContactAge
-df_ss <- df_ss %>%
-  distinct(PatientId, ConceptID, ContactAge, .keep_all = TRUE)
-
-# recode ContactAge as unique values (encounters) per PatientId
-df_ss <- df_ss %>%
-  group_by(PatientId, ContactAge) %>%
-  nest(ConceptID = c(ConceptID))
-
-# find the number of unique encounters per patient
-vec_imb <- df_ss %>%
-  ungroup() %>%
-  group_by(status, PatientId) %>%
-  mutate(mean = mean(n_distinct(ContactAge)))
-
-# find the mean number of unique encounters per group
-vec_imb <- vec_imb %>%
-  group_by(status) %>%
-  summarize(mean = mean(mean))
-
-# downsampling: find majority group and ratio
-label_maj <- vec_imb$status[which.max(vec_imb$mean)]
-ratio_imb <- vec_imb$mean[[which.min(vec_imb$mean)]]/vec_imb$mean[[which.max(vec_imb$mean)]]
-
-if(verbose){
-  print("Ratio of mean number of unique encounters per patient per group:")
-  print(ratio_imb)
+  df_ss <- df_match1 %>%
+    left_join(df[ ,c("PatientId", "ContactAge", "ConceptID")], by = "PatientId") 
+  
+  # force unique ConceptIDs per ContactAge
+  df_ss <- df_ss %>%
+    distinct(PatientId, ConceptID, ContactAge, .keep_all = TRUE)
+  
+  # recode ContactAge as unique values (encounters) per PatientId
+  df_ss <- df_ss %>%
+    group_by(PatientId, ContactAge) %>%
+    nest(ConceptID = c(ConceptID))
+  
+  # find the number of unique encounters per patient
+  vec_imb <- df_ss %>%
+    ungroup() %>%
+    group_by(status, PatientId) %>%
+    mutate(mean = mean(n_distinct(ContactAge)))
+  
+  # find the mean number of unique encounters per group
+  vec_imb <- vec_imb %>%
+    group_by(status) %>%
+    summarize(mean = mean(mean))
+  
+  # downsampling: find majority group and ratio
+  label_maj <- vec_imb$status[which.max(vec_imb$mean)]
+  ratio_imb <- vec_imb$mean[[which.min(vec_imb$mean)]]/vec_imb$mean[[which.max(vec_imb$mean)]]
+  
+  if(verbose){
+    print("Ratio of mean number of unique encounters per patient per group:")
+    print(ratio_imb)
   }
+  
+  # sample a fraction of encounters per patient from the majority group
+  df_ss_min <- df_ss %>% 
+    # ungroup() %>%
+    group_by(PatientId) %>%
+    filter(status == label_maj) %>%
+    slice_sample(prop = ratio_imb)
+  
+  # rowbind back with the minority group
+  df_ss <- df_ss %>%
+    ungroup() %>%
+    filter(status != label_maj) %>%
+    rbind(df_ss_min)
+  
+  # unnest ConceptIDs again
+  df_ss <- df_ss %>% 
+    unnest(ConceptID)
+  
+  return(df_ss)
+}
 
-# sample a fraction of encounters per patient from the majority group
-df_ss_min <- df_ss %>% 
-  # ungroup() %>%
-  group_by(PatientId) %>%
-  filter(status == label_maj) %>%
-  slice_sample(prop = ratio_imb)
+### QQ-Plot and lambda value functions from https://slowkow.com/notes/ggplot2-qqplot/
+inflation <- function(ps) {
+  chisq <- qchisq(1 - ps, 1)
+  lambda <- median(chisq) / qchisq(0.5, 1)
+  lambda
+}
 
-# rowbind back with the minority group
-df_ss <- df_ss %>%
-  ungroup() %>%
-  filter(status != label_maj) %>%
-  rbind(df_ss_min)
-
-# unnest ConceptIDs again
-df_ss <- df_ss %>% 
-  unnest(ConceptID)
-
-return(df_ss)
+#' Create a quantile-quantile plot with ggplot2.
+#'
+#' Assumptions:
+#'   - Expected P values are uniformly distributed.
+#'   - Confidence intervals assume independence between tests.
+#'     We expect deviations past the confidence intervals if the tests are
+#'     not independent.
+#'     For example, in a genome-wide association study, the genotype at any
+#'     position is correlated to nearby positions. Tests of nearby genotypes
+#'     will result in similar test statistics.
+#'
+#' @param ps Vector of p-values.
+#' @param ci Size of the confidence interval, 95% by default.
+#' @return A ggplot2 plot.
+#' @examples
+#' library(ggplot2)
+#' gg_qqplot(runif(1e2)) + theme_grey(base_size = 24)
+gg_qqplot <- function(ps, ci = 0.95) {
+  n  <- length(ps)
+  df <- data.frame(
+    observed = -log10(sort(ps)),
+    expected = -log10(ppoints(n)),
+    clower   = -log10(qbeta(p = (1 - ci) / 2, shape1 = 1:n, shape2 = n:1)),
+    cupper   = -log10(qbeta(p = (1 + ci) / 2, shape1 = 1:n, shape2 = n:1))
+  )
+  log10Pe <- expression(paste("Expected -log"[10], plain(P)))
+  log10Po <- expression(paste("Observed -log"[10], plain(P)))
+  ggplot(df) +
+    geom_ribbon(
+      mapping = aes(x = expected, ymin = clower, ymax = cupper),
+      alpha = 0.1
+    ) +
+    geom_point(aes(expected, observed), shape = 1, size = 3) +
+    geom_abline(intercept = 0, slope = 1, alpha = 0.5) +
+    # geom_line(aes(expected, cupper), linetype = 2, size = 0.5) +
+    # geom_line(aes(expected, clower), linetype = 2, size = 0.5) +
+    xlab(log10Pe) +
+    ylab(log10Po)
 }

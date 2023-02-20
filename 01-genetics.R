@@ -24,10 +24,16 @@ librarian::shelf(tidyverse,
                  Spectrum,
                  CGEN,
                  egg,
-                 scales)
+                 scales,
+                 qgraph,
+                 igraph,
+                 bnlearn)
 
 # functions
 source("func.R")
+
+# seed
+set.seed(42)
 
 ### PARAMETERS ----------------------------------------------------------------
 # matching method for matchit
@@ -386,6 +392,36 @@ df_match7 <- df_match7 %>%
   rename(group = status) %>%
   mutate(group = as.logical(group))
 
+## Group 8: SCN1A vs. CDKL5
+df_match8 <- df_match %>%
+  filter(status %in% c("scn1a", "cdkl5")) %>%
+  mutate(status = recode(status, 
+                         "cdkl5" = 0,
+                         "scn1a" = 1)) 
+
+# df_match8 <- matchit(status ~ median_age + Ethnicity + Gender, 
+#                      data = df_match8, ratio = 1,
+#                      method = flag_match, distance = "glm")
+# 
+# df_match8 <- match.data(df_match8)
+# 
+# df_match8 <- downsampleMatch(df_match8, df)
+
+df_match8 <- df_match8 %>%
+  # # merge in ConceptIDs
+  left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
+  # merge in propagated HPO terms
+  left_join(hpo_map, by = "ConceptID") %>%
+  rename(term = name) %>%
+  left_join(prop_map, by = "term") %>%
+  select(-term) %>%
+  rename(term = prop_terms) %>%
+  na.omit %>%
+  unnest(cols = c(term)) %>%
+  # recode for later enrichment plots
+  rename(group = status) %>%
+  mutate(group = as.logical(group))
+
 ### SUMMARY STATS -------------------------------------------------------------
 ## demographic table
 tbl_person <- df_person %>%  
@@ -586,8 +622,8 @@ enrich1 <- df_match1 %>%
 # manual labels
 enrich1$plot$data$expcat_text <- NA
 enrich1$plot$data[enrich1$plot$data$description == "Abnormality of the genitourinary system", ]$expcat_text <- "Abnormality of the genitourinary system"
-enrich1$plot$data[enrich1$plot$data$description == "Abnormality of the skeletal system", ]$expcat_text <- "Abnormality of the skeletal system"
 enrich1$plot$data[enrich1$plot$data$description == "Intracranial hemorrhage", ]$expcat_text <- "Intracranial hemorrhage"
+enrich1$plot$data[enrich1$plot$data$description == "Behavioral abnormality", ]$expcat_text <- "Behavioral abnormality"
 
 enrich1$plot <- enrich1$plot +
   coord_fixed(xlim = c(0, .2), ylim = c(0, .2)) +
@@ -688,6 +724,22 @@ enrich7$plot$data[enrich7$plot$data$description == "Proteinuria", ]$expcat_text 
 enrich7$plot <- enrich7$plot +
   coord_fixed(xlim = c(0, .4), ylim = c(0, .4)) +
   ggtitle("TSC vs. Non-Genetic") +
+  theme(plot.title = element_text(hjust = 0.5, size = 18))
+
+## Group 8: SCN1A vs. CDKL5
+enrich8 <- df_match8 %>%
+  enrichmentPlot(., ont_hpo, forest = TRUE)
+
+# manual labels
+enrich8$plot$data$expcat_text <- NA
+enrich8$plot$data[enrich8$plot$data$description == "Arrhythmia", ]$expcat_text <- "Arrhythmia"
+enrich8$plot$data[enrich8$plot$data$description == "Abnormality of the nervous system", ]$expcat_text <- "Abnormality of the nervous system"
+enrich8$plot$data[enrich8$plot$data$description == "Infection-related seizure", ]$expcat_text <- "Infection-related seizure"
+enrich8$plot$data[enrich8$plot$data$description == "Abnormality of the immune system", ]$expcat_text <- "Abnormality of the immune system"
+
+enrich8$plot <- enrich8$plot +
+  coord_fixed(xlim = c(0, .5), ylim = c(0, .5)) +
+  ggtitle("SCN1A vs. CDKL5") +
   theme(plot.title = element_text(hjust = 0.5, size = 18))
 
 ### LONGITUDINAL ANALYSIS -----------------------------------------------------
@@ -997,15 +1049,22 @@ df_conceptmatch <- df_conceptmatch %>%
          OR = fisher.test(matrix(c(Y, Y_out, N, N_out), nrow = 2, ncol = 2))$estimate,
          CI1 = fisher.test(matrix(c(Y, Y_out, N, N_out), nrow = 2, ncol = 2))$conf.int[[1]],
          CI2 = fisher.test(matrix(c(Y, Y_out, N, N_out), nrow = 2, ncol = 2))$conf.int[[2]]) %>%
-  # adjust for multiple testing
+  # adjust for multiple testing, keep original values
   ungroup() %>%
+  mutate(P_i = P) %>%
   mutate(P = p.adjust(P, method = "bonferroni"))
 
-# ## QQ plot, just for internal diagnostics
-# df_conceptmatch %>%
-#   pull(P) %>%
-#   QQ.plot() 
-# abline(v=-log10(0.05), col="blue")
+## QQ plot
+pqq <- gg_qqplot(df_conceptmatch$P_i) +
+  theme_classic() +
+  annotate(geom = "text", x = -Inf, y = Inf,
+           hjust = -0.15, vjust = 1 + 0.15 * 3,
+           label = sprintf("  λ    = %.2f", inflation(df_conceptmatch$P_i)),
+           size = 5) +
+  coord_equal() +
+  theme(aspect.ratio = 1) +
+  geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed")
 
 # keep significant associations
 df_conceptmatch <- df_conceptmatch %>%
@@ -1016,23 +1075,28 @@ df_conceptmatch <- df_conceptmatch %>%
   left_join(umls_map, by = "ConceptID")
 
 # manual annotation
-df_conceptmatch[df_conceptmatch$ConceptID == "C0478107", ]$ConceptDesc <- "Other specified chromosome abnormalities"
-df_conceptmatch[df_conceptmatch$ConceptID == "C0476431", ]$ConceptDesc <- "Abnormal karyotype"
-df_conceptmatch[df_conceptmatch$ConceptID == "C2875116", ]$ConceptDesc <- "Other generalized epilepsy and epileptic syndromes, intractable, without status epilepticus"
-df_conceptmatch[df_conceptmatch$ConceptID == "C2910620", ]$ConceptDesc <- "Encounter for screening for cardiovascular disorders"
+df_conceptmatch[df_conceptmatch$ConceptID == "C0478107", ]$ConceptDesc <- NA
+df_conceptmatch[df_conceptmatch$ConceptID == "C0476431", ]$ConceptDesc <- NA
+# df_conceptmatch[df_conceptmatch$ConceptID == "C0478107", ]$ConceptDesc <- "Other specified chromosome abnormalities"
+# df_conceptmatch[df_conceptmatch$ConceptID == "C0476431", ]$ConceptDesc <- "Abnormal karyotype"
+df_conceptmatch[df_conceptmatch$ConceptID == "C2875116", ]$ConceptDesc <- "Generalized epilepsy and epileptic syndromes, intractable"
+df_conceptmatch[df_conceptmatch$ConceptID == "C2910620", ]$ConceptDesc <- "Screening for cardiovascular disorders"
 df_conceptmatch[df_conceptmatch$ConceptID == "C3161331", ]$ConceptDesc <- "Unspecified intellectual disabilities"
-df_conceptmatch[df_conceptmatch$ConceptID == "C0341102", ]$ConceptDesc <- "Gastroesophageal reflux disease without esophagitis"
+df_conceptmatch[df_conceptmatch$ConceptID == "C0341102", ]$ConceptDesc <- "Gastroesophageal reflux disease"
 df_conceptmatch[df_conceptmatch$ConceptID == "C2911172", ]$ConceptDesc <- "Other specified health status"
-df_conceptmatch[df_conceptmatch$ConceptID == "C2911188", ]$ConceptDesc <- "Other long term (current) drug therapy"
+df_conceptmatch[df_conceptmatch$ConceptID == "C2911188", ]$ConceptDesc <- "Other long term drug therapy"
 
 # forest plot
-df_conceptmatch %>%
+p_forest_nonhpo <- df_conceptmatch %>%
+  na.omit %>%
+  slice_max(order_by = OR, n = 8, with_ties = FALSE) %>%
   ggplot(aes(y = reorder(ConceptDesc, OR))) +
   geom_point(aes(x = OR), shape = 15, size = 3) +
   geom_linerange(aes(xmin = CI1, xmax = CI2)) +
   geom_vline(xintercept = 1, linetype = "dashed") +
   scale_x_continuous(trans = 'log10',
                      oob = scales::oob_squish_infinite) +
+  scale_y_discrete(labels = label_wrap(30)) +
   expand_limits(x = 1) +
   theme_classic() +
   ylab("") +
@@ -1156,6 +1220,79 @@ pt <- cowplot::plot_grid(pt1 + theme(axis.title.x = element_blank()),
                          pt2, 
                          ncol = 1, align = "v")
 
+### OTHER SUB-ANALYSIS ---------------------------------------------------------
+## For HPO OR plot, find the terms that make up geniturourinary system abnormality
+# define descendants
+vec_desc <- get_descendants(ont_hpo, "HP:0000119")
+
+df_desc <- df_match1 %>%
+  # remove TSC patients, to see if association remains strong
+  filter(PatientId %nin% df_tsc$PatientID) %>%
+  # filter cases by those containing descendant terms
+  filter(term %in% vec_desc) %>%
+  filter(group == TRUE) %>%
+  group_by(term) %>%
+  count(sort = TRUE) %>%
+  # get descriptions and ic
+  left_join(desc_map, by = "term") %>%
+  left_join(df_ic, by = "term") %>%
+  ungroup() %>%
+  # get pvalue for each term, only keep if it's independently significant
+  left_join(enrich1$data[, c("term", "pvalue")], by = "term") %>%
+  filter(pvalue < 0.05) %>%
+  # sort by IC
+  slice_max(n, prop = 0.9) %>%
+  arrange(desc(ic)) 
+
+# reduce to minimal set
+vec_min <- minimal_set(ont_hpo, df_desc$term)
+df_desc <- df_desc[df_desc$term %in% vec_min, ]
+
+# restrict subgraph by propagating back up from our minimal set
+vec_desc <- propagate_relations(ont_hpo, df_desc$term, "parents") %>% unique()
+
+# make igraph, convert to bn
+librarian::shelf(igraph)
+parents <- ont_hpo$parents
+self <- rep(names(parents), lengths(parents))
+g <- igraph::make_graph(rbind(unlist(parents), self))
+bng <- as.bn(g)
+
+# generate HPO subgraph of node of interest
+arcs <- data.frame(bng$arcs)
+arcs <- arcs[arcs$X1 %in% vec_desc & arcs$X2 %in% vec_desc, ]
+colnames(arcs) <- c("from", "to")
+graph_hpo <- empty.graph(vec_desc)
+arcs(graph_hpo) <- arcs
+
+# revert to igraph and format graph
+g2 <- as.igraph(graph_hpo)
+## note: complete term name labels are just impossible to format with igraph
+# V(g2)$label <- NA
+# V(g2)[vec_min]$label <- paste0("\n", "\n", "\n", "\n", "\n", "\n", "\n", df_desc$description)
+# V(g2)["HP:0003244"]$label <- paste0("\n","\n","\n","\n","\n", "\n", "\n", "\n", "\n", "\t","Penile hypospadia")
+# V(g2)["HP:0000028"]$label <- paste0("\n", "\n", "\n", "\n", "\n", "\t","Cryptorchidism")
+# V(g2)["HP:0000086"]$label <- paste0("\n", "\n", "\t","Ectopic kidney")
+V(g2)$label <- NA
+V(g2)[vec_min]$label <- rep(LETTERS)[1:length(V(g2)[vec_min]$label)]
+V(g2)$color <- "gray"
+V(g2)[vec_min]$color <- "tomato"
+V(g2)$size <- 7
+V(g2)[vec_min]$size <- -log10(df_desc$pvalue) + 7
+E(g2)$arrow.mode <- 2
+
+# use ggplotify to get a grob-able object
+pqg <- as.ggplot(expression(plot(g2, 
+                                 vertex.frame.color = "gray",
+                                 vertex.label.color = "black",
+                                 vertex.label.cex = 0.8,
+                                 # vertex.label.dist = 2.5,
+                                 edge.arrow.size = .2,
+                                 layout = layout_as_tree))) # Reingold-Tilford graph
+
+pqg <- pqg + 
+  theme(plot.margin = unit(c(-50, -20, -50, -50), "pt"))
+
 ### GENERATE REPORT ------------------------------------------------------------
 ## Figure 1: Descriptive statistics of the study cohort.
 Fig1 <- cowplot::plot_grid(p1,
@@ -1175,160 +1312,187 @@ Fig1
 dev.off()
 
 ## Figure 2: Genetic vs. Non-Genetic
-p_tmp <- cowplot::plot_grid(enrich1$plot + 
-                              ggtitle("") + 
-                              theme_set(theme_classic()) +
-                              coord_cartesian(xlim = c(0, 0.15), ylim = c(0, 0.15)) +
-                              ylab("Term encounter frequency in likely genetic patients") +
-                              xlab("Term encounter frequency in non-genetic patients"), 
-                            enrich1$forest,
-                            nrow = 1, labels = "AUTO")
-
-Fig2 <- cowplot::plot_grid(p_tmp, plong1$plot +
-                             ylab("Term association for genetic vs. non-genetic \n patients, one-tailed t-test -log10(pvalue)") +
-                             xlab("Age (years) at highest term significance, binned by group encounter frequency"), 
-                           nrow = 2,
-                           labels = c("", "C"))
+Fig2 <- cowplot::plot_grid(pqq, 
+                   p_forest_nonhpo,
+                   enrich1$forest,
+                   enrich1$plot + 
+                     ggtitle("") + 
+                     theme_set(theme_classic()) +
+                     coord_cartesian(xlim = c(0, 0.15), ylim = c(0, 0.15)) +
+                     ylab("Frequency, likely genetic patient encounters") +
+                     xlab("Frequency, non-genetic patients encounters"),
+                   enrich8$plot + 
+                     ggtitle("") + 
+                     theme_set(theme_classic()) +
+                     coord_cartesian(xlim = c(0, 0.5), ylim = c(0, 0.5)) +
+                     ylab("Frequency, SCN1A patient encounters") +
+                     xlab("Frequency, CDKL5 patient encounters"),
+                   pqg,
+                   nrow = 2, labels = "AUTO", align = "none")
 
 pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig2.pdf",
     width = 12,
-    height = 12)
+    height = 8,
+    encoding = 'CP1253.enc') # to draw Lambda on panel A
 
 Fig2
 
 dev.off()
 
-## Figure 3: SCN1A vs. Non-Genetic
-p_tmp <- cowplot::plot_grid(enrich4$plot + 
-                              ggtitle("") + 
-                              theme_set(theme_classic()) +
-                              coord_cartesian(xlim = c(0, 0.3), ylim = c(0, 0.3)) +
-                              ylab("SCN1A") +
-                              xlab("Non-genetic patients"), 
-                            enrich4$forest,
-                            nrow = 1, labels = "AUTO")
-
-Fig3 <- cowplot::plot_grid(p_tmp, plong4$plot, 
-                           nrow = 2,
-                           labels = c("", "C"))
-
-pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig3.pdf",
-    width = 12,
-    height = 12)
-
-Fig3
-
-dev.off()
-
-## Figure 3.1: SCN1A vs. Genetic
-p_tmp <- cowplot::plot_grid(enrich2$plot + 
-                              ggtitle("") + 
-                              theme_set(theme_classic()) +
-                              coord_cartesian(xlim = c(0, 0.3), ylim = c(0, 0.3)) +
-                              ylab("SCN1A") +
-                              xlab("Genetic patients"), 
-                            enrich2$forest,
-                            nrow = 1, labels = "AUTO")
-
-Fig3.1 <- cowplot::plot_grid(p_tmp, plong2$plot, 
-                             nrow = 2,
-                             labels = c("", "C"))
-
-pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig3.1.pdf",
-    width = 12,
-    height = 12)
-
-Fig3.1
-
-dev.off()
-
-## Figure 4: CDKL5 vs. Non-Genetic
-p_tmp <- cowplot::plot_grid(enrich5$plot + 
-                              ggtitle("") + 
-                              theme_set(theme_classic()) +
-                              coord_cartesian(xlim = c(0, 0.3), ylim = c(0, 0.3)) +
-                              ylab("CDKL5") +
-                              xlab("Non-genetic patients"), 
-                            enrich5$forest,
-                            nrow = 1, labels = "AUTO")
-
-Fig4 <- cowplot::plot_grid(p_tmp, plong5$plot + coord_cartesian(xlim = c(0, 12)), 
-                           nrow = 2,
-                           labels = c("", "C"))
-
-pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig4.pdf",
-    width = 12,
-    height = 12)
-
-Fig4
-
-dev.off()
-
-## Figure 4.1: CDKL5 vs. Genetic
-p_tmp <- cowplot::plot_grid(enrich3$plot + 
-                              ggtitle("") + 
-                              theme_set(theme_classic()) +
-                              coord_cartesian(xlim = c(0, 0.3), ylim = c(0, 0.3)) +
-                              ylab("CDKL5") +
-                              xlab("Genetic patients"), 
-                            enrich3$forest,
-                            nrow = 1, labels = "AUTO")
-
-Fig4.1 <- cowplot::plot_grid(p_tmp, plong3$plot + coord_cartesian(xlim = c(0, 12)), 
-                             nrow = 2,
-                             labels = c("", "C"))
-
-pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig4.1.pdf",
-    width = 12,
-    height = 12)
-
-Fig4.1
-
-dev.off()
-
-## Figure 5: TSC vs. Non-Genetic
-p_tmp <- cowplot::plot_grid(enrich7$plot + 
-                              ggtitle("") + 
-                              theme_set(theme_classic()) +
-                              coord_cartesian(xlim = c(0, 0.3), ylim = c(0, 0.3)) +
-                              ylab("TSC") +
-                              xlab("Non-genetic patients"), 
-                            enrich7$forest,
-                            nrow = 1, labels = "AUTO")
-
-Fig5 <- cowplot::plot_grid(p_tmp, plong7$plot, 
-                           nrow = 2,
-                           labels = c("", "C"))
-
-pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig5.pdf",
-    width = 12,
-    height = 12)
-
-Fig5
-
-dev.off()
-
-## Figure 5.1: TSC vs. Genetic
-p_tmp <- cowplot::plot_grid(enrich7$plot + 
-                              ggtitle("") + 
-                              theme_set(theme_classic()) +
-                              coord_cartesian(xlim = c(0, 0.3), ylim = c(0, 0.3)) +
-                              ylab("TSC") +
-                              xlab("Genetic patients"), 
-                            enrich7$forest,
-                            nrow = 1, labels = "AUTO")
-
-Fig5.1 <- cowplot::plot_grid(p_tmp, plong7$plot, 
-                             nrow = 2,
-                             labels = c("", "C"))
-
-pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig5.1.pdf",
-    width = 12,
-    height = 12)
-
-Fig5.1
-
-dev.off()
+# p_tmp <- cowplot::plot_grid(enrich1$plot + 
+#                               ggtitle("") + 
+#                               theme_set(theme_classic()) +
+#                               coord_cartesian(xlim = c(0, 0.15), ylim = c(0, 0.15)) +
+#                               ylab("Term encounter frequency in likely genetic patients") +
+#                               xlab("Term encounter frequency in non-genetic patients"), 
+#                             enrich1$forest,
+#                             nrow = 1, labels = "AUTO")
+# 
+# Fig2 <- cowplot::plot_grid(p_tmp, plong1$plot +
+#                              ylab("Term association for genetic vs. non-genetic \n patients, one-tailed t-test -log10(pvalue)") +
+#                              xlab("Age (years) at highest term significance, binned by group encounter frequency"), 
+#                            nrow = 2,
+#                            labels = c("", "C"))
+# 
+# pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig2.pdf",
+#     width = 12,
+#     height = 12)
+# 
+# Fig2
+# 
+# dev.off()
+# 
+# ## Figure 3: SCN1A vs. Non-Genetic
+# p_tmp <- cowplot::plot_grid(enrich4$plot + 
+#                               ggtitle("") + 
+#                               theme_set(theme_classic()) +
+#                               coord_cartesian(xlim = c(0, 0.3), ylim = c(0, 0.3)) +
+#                               ylab("SCN1A") +
+#                               xlab("Non-genetic patients"), 
+#                             enrich4$forest,
+#                             nrow = 1, labels = "AUTO")
+# 
+# Fig3 <- cowplot::plot_grid(p_tmp, plong4$plot, 
+#                            nrow = 2,
+#                            labels = c("", "C"))
+# 
+# pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig3.pdf",
+#     width = 12,
+#     height = 12)
+# 
+# Fig3
+# 
+# dev.off()
+# 
+# ## Figure 3.1: SCN1A vs. Genetic
+# p_tmp <- cowplot::plot_grid(enrich2$plot + 
+#                               ggtitle("") + 
+#                               theme_set(theme_classic()) +
+#                               coord_cartesian(xlim = c(0, 0.3), ylim = c(0, 0.3)) +
+#                               ylab("SCN1A") +
+#                               xlab("Genetic patients"), 
+#                             enrich2$forest,
+#                             nrow = 1, labels = "AUTO")
+# 
+# Fig3.1 <- cowplot::plot_grid(p_tmp, plong2$plot, 
+#                              nrow = 2,
+#                              labels = c("", "C"))
+# 
+# pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig3.1.pdf",
+#     width = 12,
+#     height = 12)
+# 
+# Fig3.1
+# 
+# dev.off()
+# 
+# ## Figure 4: CDKL5 vs. Non-Genetic
+# p_tmp <- cowplot::plot_grid(enrich5$plot + 
+#                               ggtitle("") + 
+#                               theme_set(theme_classic()) +
+#                               coord_cartesian(xlim = c(0, 0.3), ylim = c(0, 0.3)) +
+#                               ylab("CDKL5") +
+#                               xlab("Non-genetic patients"), 
+#                             enrich5$forest,
+#                             nrow = 1, labels = "AUTO")
+# 
+# Fig4 <- cowplot::plot_grid(p_tmp, plong5$plot + coord_cartesian(xlim = c(0, 12)), 
+#                            nrow = 2,
+#                            labels = c("", "C"))
+# 
+# pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig4.pdf",
+#     width = 12,
+#     height = 12)
+# 
+# Fig4
+# 
+# dev.off()
+# 
+# ## Figure 4.1: CDKL5 vs. Genetic
+# p_tmp <- cowplot::plot_grid(enrich3$plot + 
+#                               ggtitle("") + 
+#                               theme_set(theme_classic()) +
+#                               coord_cartesian(xlim = c(0, 0.3), ylim = c(0, 0.3)) +
+#                               ylab("CDKL5") +
+#                               xlab("Genetic patients"), 
+#                             enrich3$forest,
+#                             nrow = 1, labels = "AUTO")
+# 
+# Fig4.1 <- cowplot::plot_grid(p_tmp, plong3$plot + coord_cartesian(xlim = c(0, 12)), 
+#                              nrow = 2,
+#                              labels = c("", "C"))
+# 
+# pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig4.1.pdf",
+#     width = 12,
+#     height = 12)
+# 
+# Fig4.1
+# 
+# dev.off()
+# 
+# ## Figure 5: TSC vs. Non-Genetic
+# p_tmp <- cowplot::plot_grid(enrich7$plot + 
+#                               ggtitle("") + 
+#                               theme_set(theme_classic()) +
+#                               coord_cartesian(xlim = c(0, 0.3), ylim = c(0, 0.3)) +
+#                               ylab("TSC") +
+#                               xlab("Non-genetic patients"), 
+#                             enrich7$forest,
+#                             nrow = 1, labels = "AUTO")
+# 
+# Fig5 <- cowplot::plot_grid(p_tmp, plong7$plot, 
+#                            nrow = 2,
+#                            labels = c("", "C"))
+# 
+# pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig5.pdf",
+#     width = 12,
+#     height = 12)
+# 
+# Fig5
+# 
+# dev.off()
+# 
+# ## Figure 5.1: TSC vs. Genetic
+# p_tmp <- cowplot::plot_grid(enrich7$plot + 
+#                               ggtitle("") + 
+#                               theme_set(theme_classic()) +
+#                               coord_cartesian(xlim = c(0, 0.3), ylim = c(0, 0.3)) +
+#                               ylab("TSC") +
+#                               xlab("Genetic patients"), 
+#                             enrich7$forest,
+#                             nrow = 1, labels = "AUTO")
+# 
+# Fig5.1 <- cowplot::plot_grid(p_tmp, plong7$plot, 
+#                              nrow = 2,
+#                              labels = c("", "C"))
+# 
+# pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig5.1.pdf",
+#     width = 12,
+#     height = 12)
+# 
+# Fig5.1
+# 
+# dev.off()
 
 ### Figure 6: Prescription patterns of genetic vs. non-genetic patients
 pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig6.pdf",
