@@ -414,7 +414,7 @@ p1 <- df %>%
              y = reorder(PatientId, upper))) +
   geom_linerange(size = 0.1) +
   ylab("Individuals") +
-  xlab("Age at encounter") +
+  xlab("Age at encounter (years)") +
   scale_color_brewer(palette = "Dark2") +
   scale_fill_brewer(palette = "Dark2") +
   coord_cartesian(xlim = c(0, 35), expand = FALSE) +
@@ -426,7 +426,14 @@ p1 <- df %>%
 stats_followup <- p1$data %>%
   mutate(dur = upper-lower) %>%
   summarize(mean = mean(dur), median = median(dur),
-            sd = sd(dur), min = min(dur), max = max(dur))
+            sd = sd(dur), min = min(dur), max = max(dur),
+            iqr = IQR(dur))
+
+# add mean age at follow-up back to plot
+p1 <- p1 + 
+  geom_vline(xintercept = stats_followup$mean, linetype = "dashed") +
+  geom_text(aes(x = stats_followup$mean, label = "\nMean: 6.5 years", y = 400),
+            colour = "black", angle = 90, size = 4)
 
 ## p2: flat violin (raincloud) plot of age at encounter
 p2 <- ggplot(data = df, aes(x = GENEPOS_comb, y = ContactAge, fill = GENEPOS_comb)) +
@@ -439,7 +446,7 @@ p2 <- ggplot(data = df, aes(x = GENEPOS_comb, y = ContactAge, fill = GENEPOS_com
   theme_classic() + 
   coord_cartesian(xlim = c(1.5, 2)) +
   geom_boxplot(width = .1, show.legend = FALSE, outlier.shape = NA, alpha = 0.5) +
-  ggpubr::stat_compare_means(aes(label = ..p.signif..),
+  ggpubr::stat_compare_means(aes(label = ..p.signif..), 
                              comparisons = list(c("N", "Y")),
                              label.x = 1.5, label.y = c(20))
 
@@ -519,9 +526,14 @@ p4 <- df_encounters_freq %>%
          color = guide_legend(title = "Group")) +
   scale_color_brewer(palette = "Dark2") +
   scale_fill_brewer(palette = "Dark2") +
-  coord_cartesian(xlim = c(0, 24), expand = FALSE) +
+  coord_cartesian(xlim = c(0, 25), expand = FALSE) +
   ylab("Mean encounters per year") +
-  xlab("Age (years)")
+  xlab("Age (years)") +
+  # add horizontal lines to define transition age for next panel
+  geom_vline(xintercept = 18, linetype = "dashed") +
+  geom_vline(xintercept = 20, linetype = "dashed") +
+  geom_text(aes(x = 18, label = "\nTransition", y = 7.25),
+            colour = "black", angle = 90, size = 4)
 
 ## mean concepts per encounter over age
 df_encounters_age <- df %>%
@@ -1024,20 +1036,139 @@ df_conceptmatch %>%
   expand_limits(x = 1) +
   theme_classic() +
   ylab("") +
-  xlab("Odds ratio (95% CI")
+  xlab("Odds ratio (95% CI, log scale)")
+
+### TRANSITION ANALYSIS --------------------------------------------------------
+# the idea: find what drives the increase in encounters for likely genetic
+# patients during the transition to adult care (ages 18-20 years)
+
+## get data
+df_trans <- df_genes %>%
+  filter(status %in% c("genetic", "nongenetic")) %>%
+  distinct(PatientId, ConceptID, ContactAge, status) %>%
+  mutate(age_group = case_when(ContactAge > 18 & ContactAge < 20 ~ 1,
+                               ContactAge < 18 ~ 0,
+                               TRUE ~ NA_real_)) %>%
+  na.omit
+
+# analyze
+df_trans <- df_trans %>%
+  group_by(age_group, status) %>%
+  count(ConceptID) %>%
+  pivot_wider(names_from = age_group, values_from = n) %>%
+  rename(N = `0`, Y = `1`) %>%
+  replace(is.na(.), 0) %>%
+  mutate(N_out = max(N)-N, Y_out = max(Y)-Y) %>%
+  rowwise() %>%
+  # do Fisher's test
+  mutate(P = fisher.test(matrix(c(Y, Y_out, N, N_out), nrow = 2, ncol = 2))$p.value,
+         OR = fisher.test(matrix(c(Y, Y_out, N, N_out), nrow = 2, ncol = 2))$estimate,
+         CI1 = fisher.test(matrix(c(Y, Y_out, N, N_out), nrow = 2, ncol = 2))$conf.int[[1]],
+         CI2 = fisher.test(matrix(c(Y, Y_out, N, N_out), nrow = 2, ncol = 2))$conf.int[[2]]) %>%
+  # adjust for multiple testing
+  ungroup() %>%
+  mutate(P = p.adjust(P, method = "bonferroni"))
+
+# keep significant associations
+df_trans <- df_trans %>%
+  filter(P < 0.05)
+
+# get descriptions
+df_trans <- df_trans %>%
+  left_join(umls_map, by = "ConceptID")
+# note: compare to non-genetic cohort, sorted by p-value or frequency in the positive transition group
+
+# manual annotation
+df_trans[df_trans$ConceptID == "C0260698", ]$ConceptDesc <- "Other postprocedural status"
+df_trans[df_trans$ConceptID == "C0036421", ]$ConceptDesc <- "Systemic Scleroderma"
+df_trans[df_trans$ConceptID == "C0260860", ]$ConceptDesc <- "Encounter due to Unspecified general medical examination"
+df_trans[df_trans$ConceptID == "C0477590", ]$ConceptDesc <- "Other overlap syndromes"
+df_trans[df_trans$ConceptID == "C2900579", ]$ConceptDesc <- "Age-related osteoporosis without current pathological fracture"
+df_trans[df_trans$ConceptID == "C0260545", ]$ConceptDesc <- "examination; infant or child"
+df_trans[df_trans$ConceptID == "C2886562", ]$ConceptDesc <- "Unspecified child maltreatment, confirmed, initial encounter"
+df_trans[df_trans$ConceptID == "C2852675", ]$ConceptDesc <- "(...), initial encounter for closed fracture"
+df_trans[df_trans$ConceptID == "C2863970", ]$ConceptDesc <- NA
+df_trans[df_trans$ConceptID == "C2852166", ]$ConceptDesc <- NA
+df_trans[df_trans$ConceptID == "C2868158", ]$ConceptDesc <- NA
+df_trans[df_trans$ConceptID == "C0159791", ]$ConceptDesc <- NA
+df_trans[df_trans$ConceptID == "C0159906", ]$ConceptDesc <- NA
+df_trans[df_trans$ConceptID == "C2868158", ]$ConceptDesc <- NA
+df_trans[df_trans$ConceptID == "C2868158", ]$ConceptDesc <- NA
+df_trans[df_trans$ConceptID == "C0152101", ]$ConceptDesc <- "Hypoplastic left heart syndrome"
+df_trans[df_trans$ConceptID == "C0375114", ]$ConceptDesc <- "Diabetes mellitus, type I"
+df_trans[df_trans$ConceptID == "C0494284", ]$ConceptDesc <- NA
+df_trans[df_trans$ConceptID == "C0260698", ]$ConceptDesc <- NA
+df_trans[df_trans$ConceptID == "C0004352", ]$ConceptDesc <- "Autistic disorder"
+df_trans[df_trans$ConceptID == "C2911178", ]$ConceptDesc <- "Encounter for long-term use of anticoagulants"
+df_trans[df_trans$ConceptID == "C0004352", ]$ConceptDesc <- "Autistic disorder"
+
+# forest plot: genetic group
+pt1 <- df_trans %>%
+  filter(status == "genetic") %>%
+  na.omit %>%
+  slice_max(order_by = Y, n = 4, with_ties = FALSE) %>%
+  ggplot(aes(y = reorder(ConceptDesc, OR))) +
+  geom_linerange(aes(xmin = CI1, xmax = CI2)) +
+  geom_point(aes(x = OR), shape = 15, size = 3, color = "#d95f02") +
+  geom_vline(xintercept = 1, linetype = "dashed") +
+  scale_x_continuous(trans = 'log10',
+                     limits = c(1, 35),
+                     oob = scales::oob_squish_infinite) +
+  scale_y_discrete(labels = label_wrap(30)) +
+  expand_limits(x = 1) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  ylab("") +
+  xlab("Odds ratio (95% CI, log scale)")
+
+# forest plot: nongenetic group
+df_trans[df_trans$ConceptID == "C2887465", ]$ConceptDesc <- NA
+df_trans[df_trans$ConceptID == "C0042870", ]$ConceptDesc <- "Vitamin D Deficiency"
+df_trans[df_trans$ConceptID == "C2910447", ]$ConceptDesc <- "Encounter for general adult medical examination without abnormal findings"
+df_trans[df_trans$ConceptID == "C2911563", ]$ConceptDesc <- "Vitamin D Deficiency"
+df_trans[df_trans$ConceptID == "C0042870", ]$ConceptDesc <- "Other specified postprocedural states"
+df_trans[df_trans$ConceptID == "C0154714", ]$ConceptDesc <- "Localization-related epilepsy, without mention of intractable epilepsy "
+df_trans[df_trans$ConceptID == "C0042870", ]$ConceptDesc <- NA
+
+df_trans[df_trans$ConceptID == "C0155886", ]$ConceptDesc <- "Asthma"
+df_trans[df_trans$ConceptID == "C2910447", ]$ConceptDesc <- "Medical examination w/o abnormal findings"
+df_trans[df_trans$ConceptID == "C0154714", ]$ConceptDesc <- "Focal epilepsy, non-intractable"
+
+pt2 <- df_trans %>%
+  filter(status == "nongenetic") %>%
+  na.omit %>%
+  slice_max(order_by = Y, n = 4, with_ties = FALSE) %>%
+  ggplot(aes(y = reorder(ConceptDesc, OR))) +
+  geom_linerange(aes(xmin = CI1, xmax = CI2)) +
+  geom_point(aes(x = OR), shape = 15, size = 3, color = "#1b9e77") +
+  geom_vline(xintercept = 1, linetype = "dashed") +
+  scale_x_continuous(trans = 'log10',
+                     limits = c(1, 35),
+                     oob = scales::oob_squish_infinite) +
+  scale_y_discrete(labels = label_wrap(30)) +
+  expand_limits(x = 1) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  ylab("") +
+  xlab("Odds ratio (95% CI)")
+
+pt <- cowplot::plot_grid(pt1 + theme(axis.title.x = element_blank()), 
+                         pt2, 
+                         ncol = 1, align = "v")
 
 ### GENERATE REPORT ------------------------------------------------------------
 ## Figure 1: Descriptive statistics of the study cohort.
-p_tmp <- cowplot::plot_grid(p2 + scale_x_discrete(labels=c("Non-genetic", "Genetic")), 
-                            p3 + scale_x_discrete(labels=c("Non-genetic", "Genetic")), 
-                            p4 + theme(legend.position = "none"), 
-                            p5 + theme(legend.position = "none"), 
-                            nrow = 2, labels = c("B", "C", "D", "E"))
-Fig1 <- cowplot::plot_grid(p1, p_tmp, rel_widths = c(1/2, 1/2), labels = c("A", ""))
+Fig1 <- cowplot::plot_grid(p1,
+                           p2 + scale_x_discrete(labels=c("Non-genetic", "Likely genetic")),
+                           p3 + scale_x_discrete(labels=c("Non-genetic", "Likely genetic")),
+                           p5 + theme(legend.position = "none"),
+                           p4 + theme(legend.position = "none"),
+                           pt,
+                           nrow = 2, labels = "AUTO", align = "none")
 
 pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig1.pdf",
     width = 12,
-    height = 6)
+    height = 8)
 
 Fig1
 
