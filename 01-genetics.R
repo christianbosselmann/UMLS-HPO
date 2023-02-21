@@ -1038,13 +1038,13 @@ p_asm <- df_heatmap %>%
 # load UMLS concepts
 # source: nlm.nih.gov/research/umls/
 umls_map <- read.delim("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/MRCONSO.RRF",
-                       sep = "|", header = FALSE) ##saved
+                       sep = "|", header = FALSE)
 
 umls_map <- umls_map %>%
   as_tibble() %>%
   filter(V2 == "ENG") %>%
   distinct(V1, V15) %>%
-  rename(ConceptID = V1, ConceptDesc = V15) ##saved2
+  rename(ConceptID = V1, ConceptDesc = V15)
 
 # only keep one description per term (multiple vocabularies)
 umls_map <- umls_map %>%
