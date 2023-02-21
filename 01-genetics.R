@@ -27,7 +27,8 @@ librarian::shelf(tidyverse,
                  scales,
                  qgraph,
                  igraph,
-                 bnlearn)
+                 bnlearn,
+                 ggplotify)
 
 # functions
 source("func.R")
@@ -767,6 +768,48 @@ plong6 <- longitudinalPlot(df_genes, df_match6, odds_plot = TRUE)
 ## Group 7
 plong7 <- longitudinalPlot(df_genes, df_match7, odds_plot = TRUE)
 
+## Longitudinal heatmap analysis
+plong1f <- longitudinalPlot(df_genes, df_match1, odds_plot = TRUE, filter = FALSE)
+
+# set legend expression (for subscript)
+str_legend <- expression(log['10']*(OR))
+
+pheat1 <- plong1f$plot$data %>%
+  ungroup() %>%
+  # select terms of interest from discovery graph (plong)
+  filter(term %in% c("HP:0000708", # behav. abnormality
+                     # "HP:0032892", # febrile seizure
+                     "HP:0002719", # recurrent infections
+                     "HP:0002311", # incoordination
+                     "HP:0011968", # feeding difficulties
+                     "HP:0002019", # constipation
+                     "HP:0000939", # osteoporosis
+                     "HP:0002664", # neoplasm incl. neurofibromas
+                     "HP:0012418", # hypoxemia
+                     "HP:0000083" # renal insufficiency
+  )) %>%
+  # filter(pvalue < 0.05) %>%
+  mutate(odds = ifelse(pvalue > 0.05, NA, odds)) %>%
+  ggplot(aes(x = as.factor(bin), 
+             y = forcats::fct_relevel(description, rev),
+             fill = log10(odds))) + 
+  geom_tile(color = "black") +
+  geom_text(aes(label = round(odds, 1)), size = 4) +
+  theme_classic() +
+  theme(strip.placement = "outside",
+        strip.background = element_rect(fill = NA, colour = NA),
+        panel.spacing = unit(0.2, "cm")) +
+  ylab("") +
+  xlab("Median age at encounter (years)") +
+  scale_fill_gradient2(name = str_legend,
+                       low = "#00b4fb",
+                       mid = "#F5F5F5",
+                       high = "#ff8422",
+                       midpoint = 0, # adjust based on OR or log OR
+                       na.value = "#F5F5F5",
+                       limits = c(-2, 2),
+                       oob = scales::oob_squish_any)
+
 ### MEDICATION ANALYSIS -------------------------------------------------------
 ## Data and Preprocessing
 # load data: list of patient medical record IDs and prescriptions
@@ -976,9 +1019,10 @@ p_asm <- df_heatmap %>%
         strip.background = element_rect(fill = NA, colour = NA),
         panel.spacing = unit(0.2, "cm")) +
   ylab("") +
-  xlab("Age (years)") +
+  xlab("Age at prescription (years)") +
   scale_x_discrete(labels = c("0-2", "2-4", "4-8", ">8")) +
-  scale_fill_gradient2(low = "#00b4fb",
+  scale_fill_gradient2(name = str_legend,
+                       low = "#00b4fb",
                        mid = "#F5F5F5",
                        high = "#ff8422",
                        midpoint = 0, # adjust based on OR or log OR
@@ -1276,18 +1320,22 @@ g2 <- as.igraph(graph_hpo)
 V(g2)$label <- NA
 V(g2)[vec_min]$label <- rep(LETTERS)[1:length(V(g2)[vec_min]$label)]
 V(g2)$color <- "gray"
-V(g2)[vec_min]$color <- "tomato"
-V(g2)$size <- 7
-V(g2)[vec_min]$size <- -log10(df_desc$pvalue) + 7
+V(g2)[vec_min]$color <- "red"
+V(g2)$size <- 8
+vec_size <- -log10(df_desc$pvalue)
+vec_size[vec_size < 7] <- 8
+V(g2)[vec_min]$size <- vec_size
 E(g2)$arrow.mode <- 2
 
 # use ggplotify to get a grob-able object
 pqg <- as.ggplot(expression(plot(g2, 
-                                 vertex.frame.color = "gray",
-                                 vertex.label.color = "black",
-                                 vertex.label.cex = 0.8,
+                                 vertex.frame.color = "black",
+                                 vertex.label.color = "white",
+                                 vertex.label.family = "Helvetica",
+                                 vertex.label.font = 1,
+                                 vertex.label.cex = .9,
                                  # vertex.label.dist = 2.5,
-                                 edge.arrow.size = .2,
+                                 edge.arrow.size = .5,
                                  layout = layout_as_tree))) # Reingold-Tilford graph
 
 pqg <- pqg + 
@@ -1313,22 +1361,22 @@ dev.off()
 
 ## Figure 2: Genetic vs. Non-Genetic
 Fig2 <- cowplot::plot_grid(pqq, 
-                   p_forest_nonhpo,
-                   enrich1$forest,
-                   enrich1$plot + 
-                     ggtitle("") + 
-                     theme_set(theme_classic()) +
-                     coord_cartesian(xlim = c(0, 0.15), ylim = c(0, 0.15)) +
-                     ylab("Frequency, likely genetic patient encounters") +
-                     xlab("Frequency, non-genetic patients encounters"),
-                   enrich8$plot + 
-                     ggtitle("") + 
-                     theme_set(theme_classic()) +
-                     coord_cartesian(xlim = c(0, 0.5), ylim = c(0, 0.5)) +
-                     ylab("Frequency, SCN1A patient encounters") +
-                     xlab("Frequency, CDKL5 patient encounters"),
-                   pqg,
-                   nrow = 2, labels = "AUTO", align = "none")
+                           p_forest_nonhpo,
+                           enrich1$forest,
+                           enrich1$plot + 
+                             ggtitle("") + 
+                             theme_set(theme_classic()) +
+                             coord_cartesian(xlim = c(0, 0.15), ylim = c(0, 0.15)) +
+                             ylab("Frequency, likely genetic patient encounters") +
+                             xlab("Frequency, non-genetic patients encounters"),
+                           enrich8$plot + 
+                             ggtitle("") + 
+                             theme_set(theme_classic()) +
+                             coord_cartesian(xlim = c(0, 0.5), ylim = c(0, 0.5)) +
+                             ylab("Frequency, SCN1A patient encounters") +
+                             xlab("Frequency, CDKL5 patient encounters"),
+                           pqg,
+                           nrow = 2, labels = "AUTO", align = "none")
 
 pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig2.pdf",
     width = 12,
@@ -1339,163 +1387,17 @@ Fig2
 
 dev.off()
 
-# p_tmp <- cowplot::plot_grid(enrich1$plot + 
-#                               ggtitle("") + 
-#                               theme_set(theme_classic()) +
-#                               coord_cartesian(xlim = c(0, 0.15), ylim = c(0, 0.15)) +
-#                               ylab("Term encounter frequency in likely genetic patients") +
-#                               xlab("Term encounter frequency in non-genetic patients"), 
-#                             enrich1$forest,
-#                             nrow = 1, labels = "AUTO")
-# 
-# Fig2 <- cowplot::plot_grid(p_tmp, plong1$plot +
-#                              ylab("Term association for genetic vs. non-genetic \n patients, one-tailed t-test -log10(pvalue)") +
-#                              xlab("Age (years) at highest term significance, binned by group encounter frequency"), 
-#                            nrow = 2,
-#                            labels = c("", "C"))
-# 
-# pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig2.pdf",
-#     width = 12,
-#     height = 12)
-# 
-# Fig2
-# 
-# dev.off()
-# 
-# ## Figure 3: SCN1A vs. Non-Genetic
-# p_tmp <- cowplot::plot_grid(enrich4$plot + 
-#                               ggtitle("") + 
-#                               theme_set(theme_classic()) +
-#                               coord_cartesian(xlim = c(0, 0.3), ylim = c(0, 0.3)) +
-#                               ylab("SCN1A") +
-#                               xlab("Non-genetic patients"), 
-#                             enrich4$forest,
-#                             nrow = 1, labels = "AUTO")
-# 
-# Fig3 <- cowplot::plot_grid(p_tmp, plong4$plot, 
-#                            nrow = 2,
-#                            labels = c("", "C"))
-# 
-# pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig3.pdf",
-#     width = 12,
-#     height = 12)
-# 
-# Fig3
-# 
-# dev.off()
-# 
-# ## Figure 3.1: SCN1A vs. Genetic
-# p_tmp <- cowplot::plot_grid(enrich2$plot + 
-#                               ggtitle("") + 
-#                               theme_set(theme_classic()) +
-#                               coord_cartesian(xlim = c(0, 0.3), ylim = c(0, 0.3)) +
-#                               ylab("SCN1A") +
-#                               xlab("Genetic patients"), 
-#                             enrich2$forest,
-#                             nrow = 1, labels = "AUTO")
-# 
-# Fig3.1 <- cowplot::plot_grid(p_tmp, plong2$plot, 
-#                              nrow = 2,
-#                              labels = c("", "C"))
-# 
-# pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig3.1.pdf",
-#     width = 12,
-#     height = 12)
-# 
-# Fig3.1
-# 
-# dev.off()
-# 
-# ## Figure 4: CDKL5 vs. Non-Genetic
-# p_tmp <- cowplot::plot_grid(enrich5$plot + 
-#                               ggtitle("") + 
-#                               theme_set(theme_classic()) +
-#                               coord_cartesian(xlim = c(0, 0.3), ylim = c(0, 0.3)) +
-#                               ylab("CDKL5") +
-#                               xlab("Non-genetic patients"), 
-#                             enrich5$forest,
-#                             nrow = 1, labels = "AUTO")
-# 
-# Fig4 <- cowplot::plot_grid(p_tmp, plong5$plot + coord_cartesian(xlim = c(0, 12)), 
-#                            nrow = 2,
-#                            labels = c("", "C"))
-# 
-# pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig4.pdf",
-#     width = 12,
-#     height = 12)
-# 
-# Fig4
-# 
-# dev.off()
-# 
-# ## Figure 4.1: CDKL5 vs. Genetic
-# p_tmp <- cowplot::plot_grid(enrich3$plot + 
-#                               ggtitle("") + 
-#                               theme_set(theme_classic()) +
-#                               coord_cartesian(xlim = c(0, 0.3), ylim = c(0, 0.3)) +
-#                               ylab("CDKL5") +
-#                               xlab("Genetic patients"), 
-#                             enrich3$forest,
-#                             nrow = 1, labels = "AUTO")
-# 
-# Fig4.1 <- cowplot::plot_grid(p_tmp, plong3$plot + coord_cartesian(xlim = c(0, 12)), 
-#                              nrow = 2,
-#                              labels = c("", "C"))
-# 
-# pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig4.1.pdf",
-#     width = 12,
-#     height = 12)
-# 
-# Fig4.1
-# 
-# dev.off()
-# 
-# ## Figure 5: TSC vs. Non-Genetic
-# p_tmp <- cowplot::plot_grid(enrich7$plot + 
-#                               ggtitle("") + 
-#                               theme_set(theme_classic()) +
-#                               coord_cartesian(xlim = c(0, 0.3), ylim = c(0, 0.3)) +
-#                               ylab("TSC") +
-#                               xlab("Non-genetic patients"), 
-#                             enrich7$forest,
-#                             nrow = 1, labels = "AUTO")
-# 
-# Fig5 <- cowplot::plot_grid(p_tmp, plong7$plot, 
-#                            nrow = 2,
-#                            labels = c("", "C"))
-# 
-# pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig5.pdf",
-#     width = 12,
-#     height = 12)
-# 
-# Fig5
-# 
-# dev.off()
-# 
-# ## Figure 5.1: TSC vs. Genetic
-# p_tmp <- cowplot::plot_grid(enrich7$plot + 
-#                               ggtitle("") + 
-#                               theme_set(theme_classic()) +
-#                               coord_cartesian(xlim = c(0, 0.3), ylim = c(0, 0.3)) +
-#                               ylab("TSC") +
-#                               xlab("Genetic patients"), 
-#                             enrich7$forest,
-#                             nrow = 1, labels = "AUTO")
-# 
-# Fig5.1 <- cowplot::plot_grid(p_tmp, plong7$plot, 
-#                              nrow = 2,
-#                              labels = c("", "C"))
-# 
-# pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig5.1.pdf",
-#     width = 12,
-#     height = 12)
-# 
-# Fig5.1
-# 
-# dev.off()
+# Fig 3: Longitudinal heatmap of genetic vs. non-genetic patients
+pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig3.pdf",
+    width = 12,
+    height = 4)
 
-### Figure 6: Prescription patterns of genetic vs. non-genetic patients
-pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig6.pdf",
+pheat1 
+
+dev.off()
+
+### Figure 4: Prescription patterns of genetic vs. non-genetic patients
+pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig4.pdf",
     width = 8,
     height = 8)
 

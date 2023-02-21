@@ -432,10 +432,12 @@ GeomFlatViolin <-
 #' @param show_legend ggplot2 legend.position, allowed are: “left”, “top”, “right”, “bottom”.
 #' @param fix_x int; fixed x-axis length
 #' @param odds_plot logical flag; if true, generate the plot with OR y-axis
+#' @param filter logical flag; if true, only keep the term in the bin with the highest p-value
 #' @return res list of longitudinal plot
 longitudinalPlot <- function(df_genes, df_match1, 
                              show_legend = "none", fix_x = 25,
-                             odds_plot = FALSE){
+                             odds_plot = FALSE,
+                             filter = TRUE){
   res <- list()
   
   # create age bins
@@ -504,9 +506,11 @@ longitudinalPlot <- function(df_genes, df_match1,
       ungroup() %>%
       mutate(pvalue = p.adjust(pvalue, "bonferroni"))
     
-    # filter by positive ORs: we only want observations for the cases
-    df_group <- df_group %>%
-      filter(odds > 1)
+    if(filter){
+      # filter by positive ORs: we only want observations for the cases
+      df_group <- df_group %>%
+        filter(odds > 1)
+    }
     
     # get n best p-values for each bin for longitudinal plot
     df_group <- df_group %>%
@@ -515,9 +519,11 @@ longitudinalPlot <- function(df_genes, df_match1,
     # %>% 
     #   slice_min(order_by = pvalue, n = 8, with_ties = FALSE) # non-trivial to choose
     
-    # filter: by ancestors
-    min_set <- ontologyIndex::minimal_set(ont_hpo, df_group$term)
-    df_group <- df_group[df_group$term %in% min_set, ]
+    if(filter){
+      # filter: by ancestors
+      min_set <- ontologyIndex::minimal_set(ont_hpo, df_group$term)
+      df_group <- df_group[df_group$term %in% min_set, ]
+    }
     
     # return
     ls_p1[[i]] <- df_group
@@ -528,28 +534,32 @@ longitudinalPlot <- function(df_genes, df_match1,
   breaks_mean <- sapply(seq, function(i) {mean(breaks_binned[i:(i+1)])}) %>%
     na.omit
   
-  # filter: for each term, keep only the bin with the highest p-value
   names(ls_p1) <- breaks_mean[1:length(ls_p1)]
   
   df_gp1 <- ls_p1 %>%
     rbindlist(idcol = "bin") %>%
     mutate(bin = as.numeric(bin))
   
-  df_gp1 <- df_gp1 %>%
-    group_by(term) %>% 
-    slice_min(order_by = pvalue, n = 1)
-  
-  # filter: only needed if we include many or insignificant variables
-  # only keep description labels for n top pvalues per bin
-  # these still have to be significant
-  top_labels <- df_gp1 %>%
-    group_by(bin) %>%
-    slice_min(order_by = pvalue, n = 2) %>%
-    filter(pvalue < 0.05)
-  
-  df_gp1 <- df_gp1 %>%
-    group_by(bin) %>%
-    mutate(description = ifelse(description %in% top_labels$description, description, NA))
+  # filter: for each term, keep only the bin with the highest p-value
+  if(filter){
+    
+    df_gp1 <- df_gp1 %>%
+      group_by(term) %>% 
+      slice_min(order_by = pvalue, n = 1)
+    
+    # filter: only needed if we include many or insignificant variables
+    # only keep description labels for n top pvalues per bin
+    # these still have to be significant
+    top_labels <- df_gp1 %>%
+      group_by(bin) %>%
+      slice_min(order_by = pvalue, n = 2) %>%
+      filter(pvalue < 0.05)
+    
+    df_gp1 <- df_gp1 %>%
+      group_by(bin) %>%
+      mutate(description = ifelse(description %in% top_labels$description, description, NA))
+    
+  } # end filter
   
   # point plot: log10(pvalue) over age bins
   # here we can just plot genetic vs non-genetic as sanity check for the subanalysis
@@ -601,7 +611,6 @@ longitudinalPlot <- function(df_genes, df_match1,
                          trans = scales::log_trans(base = 10),
                          expand = expand_scale(mult = c(0, .1)))
   }
-  
   return(res)
 }
 
