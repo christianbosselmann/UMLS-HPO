@@ -774,24 +774,58 @@ plong1f <- longitudinalPlot(df_genes, df_match1, odds_plot = TRUE, filter = FALS
 # set legend expression (for subscript)
 str_legend <- expression(log['10']*(OR))
 
+# set terms of interest from discovery graph (plong)
+vec_longterms <- c("HP:0000708", # behav. abnormality
+                   "HP:0002719", # recurrent infections
+                   "HP:0002311", # incoordination
+                   "HP:0011968", # feeding difficulties
+                   "HP:0002019", # constipation
+                   "HP:0000939", # osteoporosis
+                   "HP:0002664", # neoplasm incl. neurofibromas
+                   "HP:0012418", # hypoxemia
+                   "HP:0000083", # renal insufficiency
+                   ### negative controls ###
+                   "HP:0003074", # Hyperglycemia
+                   "HP:0003193", # Allergic rhinitis
+                   "HP:0000388") # Otitis media
+
+## heatmap label clustering
+# get list of numeric vectors of odds ratios by term
+dist_ls <- plong1f$plot$data %>%
+  ungroup() %>%
+  filter(term %in% vec_longterms) %>%
+  mutate(odds = ifelse(pvalue > 0.05, NA, odds)) %>%
+  select(term, odds) %>%
+  split(by = "term") %>%
+  lapply(., function(x) {as.numeric(x$odds)})
+
+# pad vector length to equal, rbind into df
+dist_df <- lapply(lapply(sapply(dist_ls, unlist), "length<-", max(lengths(dist_ls))), as.list) %>%
+  lapply(., function(x) {unlist(x); as.data.frame(t(x))}) %>%
+  rbindlist()
+
+# get matrix, fix NA and Inf
+dist_mat <- as.matrix(dist_df)
+dist_mat[which(is.na(dist_mat))] <- 0
+dist_mat[dist_mat == Inf] <- 99
+
+# calculate distance and clustering
+dist_dist <- dist(dist_mat, method = "euclidean")
+dist_clust <- hclust(dist_dist)
+## end of heatmap label clustering
+
 pheat1 <- plong1f$plot$data %>%
   ungroup() %>%
   # select terms of interest from discovery graph (plong)
-  filter(term %in% c("HP:0000708", # behav. abnormality
-                     # "HP:0032892", # febrile seizure
-                     "HP:0002719", # recurrent infections
-                     "HP:0002311", # incoordination
-                     "HP:0011968", # feeding difficulties
-                     "HP:0002019", # constipation
-                     "HP:0000939", # osteoporosis
-                     "HP:0002664", # neoplasm incl. neurofibromas
-                     "HP:0012418", # hypoxemia
-                     "HP:0000083" # renal insufficiency
-  )) %>%
-  # filter(pvalue < 0.05) %>%
+  filter(term %in% vec_longterms) %>%
   mutate(odds = ifelse(pvalue > 0.05, NA, odds)) %>%
+  # set description factor levels
+  mutate(description = as.factor(description)) %>%
+  mutate(description = factor(description, levels = levels(description)[tmp_clust$order])) %>%
+  # plot
   ggplot(aes(x = as.factor(bin), 
-             y = forcats::fct_relevel(description, rev),
+             y = description,
+             # y = forcats::fct_relevel(description, rev),
              fill = log10(odds))) + 
   geom_tile(color = "black") +
   geom_text(aes(label = round(odds, 1)), size = 4) +
