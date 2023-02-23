@@ -774,7 +774,7 @@ plong1f <- longitudinalPlot(df_genes, df_match1, odds_plot = TRUE, filter = FALS
 # set legend expression (for subscript)
 str_legend <- expression(log['10']*(OR))
 
-# set terms of interest from discovery graph (plong)
+# set terms of interest from discovery graph (plong): manually
 vec_longterms <- c("HP:0000708", # behav. abnormality
                    "HP:0002719", # recurrent infections
                    "HP:0002311", # incoordination
@@ -788,6 +788,13 @@ vec_longterms <- c("HP:0000708", # behav. abnormality
                    "HP:0003074", # Hyperglycemia
                    "HP:0003193", # Allergic rhinitis
                    "HP:0000388") # Otitis media
+
+# # can also set the labels by n top pvalues/odds
+# vec_longterms <- plong1$plot$data %>%
+#   ungroup %>%
+#   filter(pvalue < 0.05) %>%
+#   slice_min(order_by = odds, n = 40, with_ties = FALSE) %>%
+#   pull(term)
 
 ## heatmap label clustering
 # get list of numeric vectors of odds ratios by term
@@ -821,7 +828,7 @@ pheat1 <- plong1f$plot$data %>%
   mutate(odds = ifelse(pvalue > 0.05, NA, odds)) %>%
   # set description factor levels
   mutate(description = as.factor(description)) %>%
-  mutate(description = factor(description, levels = levels(description)[tmp_clust$order])) %>%
+  mutate(description = factor(description, levels = levels(description)[dist_clust$order])) %>%
   # plot
   ggplot(aes(x = as.factor(bin), 
              y = description,
