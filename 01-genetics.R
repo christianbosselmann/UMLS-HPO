@@ -780,6 +780,8 @@ vec_longterms <- c("HP:0000708", # behav. abnormality
                    "HP:0002311", # incoordination
                    "HP:0011968", # feeding difficulties
                    "HP:0002019", # constipation
+                   "HP:0001944", # dehydration
+                   "HP:0002415", # leukodystrophy
                    "HP:0000939", # osteoporosis
                    "HP:0002664", # neoplasm incl. neurofibromas
                    "HP:0012418", # hypoxemia
