@@ -447,7 +447,10 @@ longitudinalPlot <- function(df_genes, df_match1,
     # get group label
     left_join(df_match1[ ,c("PatientId", "group")] %>% unique, by = "PatientId") %>%
     ungroup() %>%
-    mutate(bin = cut_number(ContactAge, n = 10))
+    ## bin width based on encounter frequency
+    # mutate(bin = cut_number(ContactAge, n = 10))
+    ## fixed bin width
+    mutate(bin = cut(ContactAge, breaks = c(0, 2, 12, 18, Inf)))
   
   # get numeric breaks for histogram
   breaks_binned <- levels(df_g1$bin) %>%

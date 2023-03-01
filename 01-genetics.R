@@ -469,7 +469,7 @@ stats_followup <- p1$data %>%
 # add mean age at follow-up back to plot
 p1 <- p1 + 
   geom_vline(xintercept = stats_followup$mean, linetype = "dashed") +
-  geom_text(aes(x = stats_followup$mean, label = "\nMean: 6.5 years", y = 400),
+  geom_text(aes(x = stats_followup$mean, label = "\nMean: 6·5 years", y = 400),
             colour = "black", angle = 90, size = 4)
 
 ## p2: flat violin (raincloud) plot of age at encounter
@@ -479,7 +479,7 @@ p2 <- ggplot(data = df, aes(x = GENEPOS_comb, y = ContactAge, fill = GENEPOS_com
   scale_color_brewer(palette = "Dark2") +
   scale_fill_brewer(palette = "Dark2") +
   xlab("Group") +
-  ylab("Age at encounter") +
+  ylab("Age at all encounters") +
   theme_classic() + 
   coord_cartesian(xlim = c(1.5, 2)) +
   geom_boxplot(width = .1, show.legend = FALSE, outlier.shape = NA, alpha = 0.5) +
@@ -744,29 +744,30 @@ enrich8$plot <- enrich8$plot +
   theme(plot.title = element_text(hjust = 0.5, size = 18))
 
 ### LONGITUDINAL ANALYSIS -----------------------------------------------------
-## Group 0
-plong0 <- longitudinalPlot(df_genes, df_match0, odds_plot = TRUE)
-
-## Group 1
-plong1 <- longitudinalPlot(df_genes, df_match1, odds_plot = TRUE)
-
-## Group 2
-plong2 <- longitudinalPlot(df_genes, df_match2, odds_plot = TRUE)
-
-## Group 3
-plong3 <- longitudinalPlot(df_genes, df_match3, odds_plot = TRUE)
-
-## Group 4
-plong4 <- longitudinalPlot(df_genes, df_match4, odds_plot = TRUE)
-
-## Group 5
-plong5 <- longitudinalPlot(df_genes, df_match5, odds_plot = TRUE)
-
-## Group 6 
-plong6 <- longitudinalPlot(df_genes, df_match6, odds_plot = TRUE)
-
-## Group 7
-plong7 <- longitudinalPlot(df_genes, df_match7, odds_plot = TRUE)
+## obsolete due to longitudinal heatmap plot
+# ## Group 0
+# plong0 <- longitudinalPlot(df_genes, df_match0, odds_plot = TRUE)
+# 
+# ## Group 1
+# plong1 <- longitudinalPlot(df_genes, df_match1, odds_plot = TRUE)
+# 
+# ## Group 2
+# plong2 <- longitudinalPlot(df_genes, df_match2, odds_plot = TRUE)
+# 
+# ## Group 3
+# plong3 <- longitudinalPlot(df_genes, df_match3, odds_plot = TRUE)
+# 
+# ## Group 4
+# plong4 <- longitudinalPlot(df_genes, df_match4, odds_plot = TRUE)
+# 
+# ## Group 5
+# plong5 <- longitudinalPlot(df_genes, df_match5, odds_plot = TRUE)
+# 
+# ## Group 6 
+# plong6 <- longitudinalPlot(df_genes, df_match6, odds_plot = TRUE)
+# 
+# ## Group 7
+# plong7 <- longitudinalPlot(df_genes, df_match7, odds_plot = TRUE)
 
 ## Longitudinal heatmap analysis
 plong1f <- longitudinalPlot(df_genes, df_match1, odds_plot = TRUE, filter = FALSE)
@@ -774,8 +775,8 @@ plong1f <- longitudinalPlot(df_genes, df_match1, odds_plot = TRUE, filter = FALS
 # set legend expression (for subscript)
 str_legend <- expression(log['10']*(OR))
 
-# set terms of interest from discovery graph (plong): manually
-vec_longterms <- c("HP:0000708", # behav. abnormality
+# set terms of interest and controls from discovery graph (plong): manually
+vec_caseterms <- c("HP:0000708", # behav. abnormality
                    "HP:0002719", # recurrent infections
                    "HP:0002311", # incoordination
                    "HP:0011968", # feeding difficulties
@@ -785,11 +786,17 @@ vec_longterms <- c("HP:0000708", # behav. abnormality
                    "HP:0000939", # osteoporosis
                    "HP:0002664", # neoplasm incl. neurofibromas
                    "HP:0012418", # hypoxemia
-                   "HP:0000083", # renal insufficiency
-                   ### negative controls ###
-                   "HP:0003074", # Hyperglycemia
-                   "HP:0003193", # Allergic rhinitis
-                   "HP:0000388") # Otitis media
+                   "HP:0002098", # respiratory distress
+                   "HP:0000083") # renal insufficiency
+
+vec_controlterms <- c("HP:0025234", # parasomnia
+                      "HP:0001287", # meningitis
+                      "HP:0001342", # cerebral hemorrhage
+                      "HP:0003074", # Hyperglycemia
+                      "HP:0003193", # Allergic rhinitis
+                      "HP:0000388") # Otitis media
+
+vec_longterms <- c(vec_caseterms, vec_controlterms)
 
 # # can also set the labels by n top pvalues/odds
 # vec_longterms <- plong1$plot$data %>%
@@ -828,6 +835,10 @@ pheat1 <- plong1f$plot$data %>%
   # select terms of interest from discovery graph (plong)
   filter(term %in% vec_longterms) %>%
   mutate(odds = ifelse(pvalue > 0.05, NA, odds)) %>%
+  # set facet groups
+  mutate(fct_group = case_when(
+    term %in% vec_caseterms ~ "Likely genetic",
+    term %in% vec_controlterms ~ "Non-genetic")) %>%
   # set description factor levels
   mutate(description = as.factor(description)) %>%
   mutate(description = factor(description, levels = levels(description)[dist_clust$order])) %>%
@@ -842,9 +853,17 @@ pheat1 <- plong1f$plot$data %>%
   theme(strip.placement = "outside",
         strip.background = element_rect(fill = NA, colour = NA),
         panel.spacing = unit(0.2, "cm")) +
+  facet_grid(fct_group~., scales = "free_y", space = "free", 
+             switch = "y", drop = FALSE, margins = FALSE) +
+  theme(strip.placement = "outside",
+        strip.background = element_rect(fill = NA, colour = NA),
+        panel.spacing = unit(0.2, "cm")) +
   ylab("") +
-  xlab("Median age at encounter (years)") +
-  scale_fill_gradient2(name = str_legend,
+  xlab("Age at encounter (years)") +
+  scale_x_discrete(labels = c("0-2", "2-12", "12-18", ">18")) +
+  scale_fill_gradient2(name = "OR",
+                       # name = str_legend,
+                       labels = c("0", "", "1", "", "Inf"),
                        low = "#00b4fb",
                        mid = "#F5F5F5",
                        high = "#ff8422",
@@ -927,10 +946,14 @@ vec_asm <- df_asm %>%
                               str_detect(MED_NAME, regex('trileptal', ignore_case = T)) ~ 'oxcarbazepine',
                               str_detect(MED_NAME, regex('loraz', ignore_case = T)) ~ 'lorazepam',
                               str_detect(MED_NAME, regex('vigabatr', ignore_case = T)) ~ 'vigabatrin',
+                              str_detect(MED_NAME, regex('sabril', ignore_case = T)) ~ 'vigabatrin',
                               str_detect(MED_NAME, regex('tiagab', ignore_case = T)) ~ 'tiagabine',
                               str_detect(MED_NAME, regex('rufinam', ignore_case = T)) ~ 'rufinamide',
                               str_detect(MED_NAME, regex('primid', ignore_case = T)) ~ 'primidone',
                               str_detect(MED_NAME, regex('phenyt', ignore_case = T)) ~ 'phenytoin',
+                              str_detect(MED_NAME, regex('dilantin', ignore_case = T)) ~ 'phenytoin',
+                              str_detect(MED_NAME, regex('epanutin', ignore_case = T)) ~ 'phenytoin',
+                              str_detect(MED_NAME, regex('cerebyx', ignore_case = T)) ~ 'phenytoin',
                               str_detect(MED_NAME, regex('phenobarb', ignore_case = T)) ~ 'phenobarbital',
                               str_detect(MED_NAME, regex('gabapent', ignore_case = T)) ~ 'gabapentin',
                               str_detect(MED_NAME, regex('felbamat', ignore_case = T)) ~ 'felbamate',
@@ -1014,8 +1037,10 @@ df_heatmap <- df_match1 %>%
   distinct(PatientId, group) %>%
   left_join(df_med, by = "PatientId") %>%
   na.omit %>%
-  # define bins
-  mutate(YearsPrescription = cut_number(YearsPrescription, 4)) %>%
+  ## define bin width by equal prescription frequency
+  # mutate(YearsPrescription = cut_number(YearsPrescription, 4)) %>%
+  ## fixed predefined bin width
+  mutate(YearsPrescription = cut(YearsPrescription, breaks = c(0, 2, 12, 18, Inf))) %>%
   # count ASM prescription per group; for each age bin (year)
   group_by(group, MED_NAME, YearsPrescription) %>%
   summarize(test = n()) %>%
@@ -1063,8 +1088,10 @@ p_asm <- df_heatmap %>%
         panel.spacing = unit(0.2, "cm")) +
   ylab("") +
   xlab("Age at prescription (years)") +
-  scale_x_discrete(labels = c("0-2", "2-4", "4-8", ">8")) +
-  scale_fill_gradient2(name = str_legend,
+  scale_x_discrete(labels = c("0-2", "2-12", "12-18", ">18")) +
+  scale_fill_gradient2(name = "OR",
+                       # name = str_legend,
+                       labels = c("0", "", "1", "", "Inf"),
                        low = "#00b4fb",
                        mid = "#F5F5F5",
                        high = "#ff8422",
@@ -1385,6 +1412,9 @@ pqg <- pqg +
   theme(plot.margin = unit(c(-50, -20, -50, -50), "pt"))
 
 ### GENERATE REPORT ------------------------------------------------------------
+# set global option of decimal point to midline
+options(OutDec = "·")
+
 ## Figure 1: Descriptive statistics of the study cohort.
 Fig1 <- cowplot::plot_grid(p1,
                            p2 + scale_x_discrete(labels=c("Non-genetic", "Likely genetic")),
@@ -1394,7 +1424,7 @@ Fig1 <- cowplot::plot_grid(p1,
                            pt,
                            nrow = 2, labels = "AUTO", align = "none")
 
-pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig1.pdf",
+pdf(file = "Fig1.pdf",
     width = 12,
     height = 8)
 
@@ -1406,6 +1436,7 @@ dev.off()
 Fig2 <- cowplot::plot_grid(pqq, 
                            p_forest_nonhpo,
                            enrich1$forest,
+                           pqg,
                            enrich1$plot + 
                              ggtitle("") + 
                              theme_set(theme_classic()) +
@@ -1418,10 +1449,9 @@ Fig2 <- cowplot::plot_grid(pqq,
                              coord_cartesian(xlim = c(0, 0.5), ylim = c(0, 0.5)) +
                              ylab("Frequency, SCN1A patient encounters") +
                              xlab("Frequency, CDKL5 patient encounters"),
-                           pqg,
                            nrow = 2, labels = "AUTO", align = "none")
 
-pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig2.pdf",
+pdf(file = "Fig2.pdf",
     width = 12,
     height = 8,
     encoding = 'CP1253.enc') # to draw Lambda on panel A
@@ -1430,20 +1460,17 @@ Fig2
 
 dev.off()
 
-# Fig 3: Longitudinal heatmap of genetic vs. non-genetic patients
-pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig3.pdf",
+## Figure 3: Nicer heatmaps of longitudinal phenotypes and prescription patterns
+Fig3 <- cowplot::plot_grid(pheat1 + theme(legend.position = "none"), 
+                           p_asm,
+                           nrow = 1, labels = "AUTO", align = "none")
+
+pdf(file = "Fig3.pdf",
     width = 12,
-    height = 4)
-
-pheat1 
-
-dev.off()
-
-### Figure 4: Prescription patterns of genetic vs. non-genetic patients
-pdf(file = "/Users/cbosselmann/Desktop/GitHub/UMLS-HPO/out/pub_genetic/Fig4.pdf",
-    width = 8,
     height = 8)
 
-p_asm 
+Fig3
 
 dev.off()
+
+
