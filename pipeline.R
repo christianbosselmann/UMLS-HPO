@@ -1,4 +1,5 @@
 ### UMLS-HPO ANALYSIS OF INDIVIDUALS WITH GENETIC EPILEPSY SYNDROMES -----------
+## Main analysis pipeline
 ##
 ## Author: Christian Bosselmann, MD
 ##
@@ -32,6 +33,9 @@ librarian::shelf(tidyverse,
 
 # functions
 source("func.R")
+
+# lookup tables
+source("dict.R")
 
 # seed
 set.seed(42)
@@ -69,7 +73,7 @@ prop_map <- ont_hpo$ancestors %>%
 # data: all encounters per patient, ages 0-6, grouped by gene positive / negative
 df_raw <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/longitudinal_genetic.csv")
 
-# data: list of MRNs per patient
+# data: list of MRNs per patient subgroup
 df_cdkl5 <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/cdkl5_genetic.csv")
 df_scn1a <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/scn1a_genetic.csv")
 df_tsc <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/tsc_genetic.csv")
@@ -144,36 +148,7 @@ df_match <- df_match %>%
   mutate(Gender = as.factor(Gender)) %>%
   mutate(Ethnicity = as.factor(Ethnicity))
 
-## Group 0: non-genetic vs. non-genetic (null)
-df_match0 <- df_match %>%
-  filter(status == "nongenetic") %>%
-  mutate(status = sample(0:1, n(), replace = TRUE))
-
-df_match0 <- matchit(status ~ median_age + Ethnicity + Gender, 
-                     data = df_match0, ratio = 1,
-                     method = flag_match, distance = "glm")
-
-df_match0 <- match.data(df_match0)
-
-# optional: downsample number of encounters per patient to control for group diff.
-df_match0 <- downsampleMatch(df_match0, df)
-
-df_match0 <- df_match0 %>%
-  # # merge in ConceptIDs; not done after downsampling
-  # left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
-  # merge in propagated HPO terms
-  left_join(hpo_map, by = "ConceptID") %>%
-  rename(term = name) %>%
-  left_join(prop_map, by = "term") %>%
-  select(-term) %>%
-  rename(term = prop_terms) %>%
-  na.omit %>%
-  unnest(cols = c(term)) %>%
-  # recode for later enrichment plots
-  rename(group = status) %>%
-  mutate(group = as.logical(group))
-
-## Group 1: genetic vs. non-genetic
+## Group: genetic vs. non-genetic
 df_match1 <- df_match %>%
   mutate(status = recode(status, 
                          "nongenetic" = 0,
@@ -192,9 +167,6 @@ df_match1 <- match.data(df_match1)
 df_match1 <- downsampleMatch(df_match1, df)
 
 df_match1 <- df_match1 %>%
-  # # merge in ConceptIDs; not done after downsampling
-  # left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
-  # merge in propagated HPO terms
   left_join(hpo_map, by = "ConceptID") %>%
   rename(term = name) %>%
   left_join(prop_map, by = "term") %>%
@@ -206,207 +178,12 @@ df_match1 <- df_match1 %>%
   rename(group = status) %>%
   mutate(group = as.logical(group))
 
-## Group 2: SCN1A vs. Genetic
-df_match2 <- df_match %>%
-  filter(status %in% c("genetic", "scn1a", "cdkl5", "tsc")) %>%
-  mutate(status = recode(status, 
-                         "scn1a" = 1,
-                         "genetic" = 0,
-                         "cdkl5" = 0,
-                         "tsc" = 0)) 
-
-df_match2 <- matchit(status ~ median_age + Ethnicity + Gender, 
-                     data = df_match2, ratio = 1,
-                     method = flag_match, distance = "glm")
-
-df_match2 <- match.data(df_match2)
-
-df_match2 <- downsampleMatch(df_match2, df)
-
-df_match2 <- df_match2 %>%
-  # # merge in ConceptIDs
-  # left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
-  # merge in propagated HPO terms
-  left_join(hpo_map, by = "ConceptID") %>%
-  rename(term = name) %>%
-  left_join(prop_map, by = "term") %>%
-  select(-term) %>%
-  rename(term = prop_terms) %>%
-  na.omit %>%
-  unnest(cols = c(term)) %>%
-  # recode for later enrichment plots
-  rename(group = status) %>%
-  mutate(group = as.logical(group))
-
-## Group 3: CDKL5 vs. Genetic
-df_match3 <- df_match %>%
-  filter(status %in% c("genetic", "scn1a", "cdkl5", "tsc")) %>%
-  mutate(status = recode(status, 
-                         "cdkl5" = 1,
-                         "genetic" = 0,
-                         "scn1a" = 0,
-                         "tsc" = 0)) 
-
-df_match3 <- matchit(status ~ median_age + Ethnicity + Gender, 
-                     data = df_match3, ratio = 1,
-                     method = flag_match, distance = "glm")
-
-df_match3 <- match.data(df_match3)
-
-df_match3 <- downsampleMatch(df_match3, df)
-
-df_match3 <- df_match3 %>%
-  # # merge in ConceptIDs
-  # left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
-  # merge in propagated HPO terms
-  left_join(hpo_map, by = "ConceptID") %>%
-  rename(term = name) %>%
-  left_join(prop_map, by = "term") %>%
-  select(-term) %>%
-  rename(term = prop_terms) %>%
-  na.omit %>%
-  unnest(cols = c(term)) %>%
-  # recode for later enrichment plots
-  rename(group = status) %>%
-  mutate(group = as.logical(group))
-
-## Group 4: SCN1A vs. Non-Genetic
-df_match4 <- df_match %>%
-  filter(status %in% c("nongenetic", "scn1a")) %>%
-  mutate(status = recode(status, 
-                         "nongenetic" = 0,
-                         "scn1a" = 1)) 
-
-df_match4 <- matchit(status ~ median_age + Ethnicity + Gender, 
-                     data = df_match4, ratio = 1,
-                     method = flag_match, distance = "glm")
-
-df_match4 <- match.data(df_match4)
-
-df_match4 <- downsampleMatch(df_match4, df)
-
-df_match4 <- df_match4 %>%
-  # # merge in ConceptIDs
-  # left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
-  # merge in propagated HPO terms
-  left_join(hpo_map, by = "ConceptID") %>%
-  rename(term = name) %>%
-  left_join(prop_map, by = "term") %>%
-  select(-term) %>%
-  rename(term = prop_terms) %>%
-  na.omit %>%
-  unnest(cols = c(term)) %>%
-  # recode for later enrichment plots
-  rename(group = status) %>%
-  mutate(group = as.logical(group))
-
-## Group 5: CDKL5 vs. Non-Genetic
-df_match5 <- df_match %>%
-  filter(status %in% c("nongenetic", "cdkl5")) %>%
-  mutate(status = recode(status, 
-                         "nongenetic" = 0,
-                         "cdkl5" = 1)) 
-
-df_match5 <- matchit(status ~ median_age + Ethnicity + Gender, 
-                     data = df_match5, ratio = 1,
-                     method = flag_match, distance = "glm")
-
-df_match5 <- match.data(df_match5)
-
-df_match5 <- downsampleMatch(df_match5, df)
-
-df_match5 <- df_match5 %>%
-  # # merge in ConceptIDs
-  # left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
-  # merge in propagated HPO terms
-  left_join(hpo_map, by = "ConceptID") %>%
-  rename(term = name) %>%
-  left_join(prop_map, by = "term") %>%
-  select(-term) %>%
-  rename(term = prop_terms) %>%
-  na.omit %>%
-  unnest(cols = c(term)) %>%
-  # recode for later enrichment plots
-  rename(group = status) %>%
-  mutate(group = as.logical(group))
-
-## Group 6: TSC vs. Genetic
-df_match6 <- df_match %>%
-  filter(status %in% c("genetic", "scn1a", "cdkl5", "tsc")) %>%
-  mutate(status = recode(status, 
-                         "tsc" = 1,
-                         "genetic" = 0,
-                         "scn1a" = 0,
-                         "cdkl5" = 0)) 
-
-df_match6 <- matchit(status ~ median_age + Ethnicity + Gender, 
-                     data = df_match6, ratio = 1,
-                     method = flag_match, distance = "glm")
-
-df_match6 <- match.data(df_match6)
-
-# optional: downsample number of encounters per patient to control for group diff.
-df_match6 <- downsampleMatch(df_match6, df)
-
-df_match6 <- df_match6 %>%
-  # # merge in ConceptIDs; not done after downsampling
-  # left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
-  # merge in propagated HPO terms
-  left_join(hpo_map, by = "ConceptID") %>%
-  rename(term = name) %>%
-  left_join(prop_map, by = "term") %>%
-  select(-term) %>%
-  rename(term = prop_terms) %>%
-  na.omit %>%
-  unnest(cols = c(term)) %>%
-  # recode for later enrichment plots
-  rename(group = status) %>%
-  mutate(group = as.logical(group))
-
-## Group 7: TSC vs. Non-Genetic
-df_match7 <- df_match %>%
-  filter(status %in% c("nongenetic", "tsc")) %>%
-  mutate(status = recode(status, 
-                         "nongenetic" = 0,
-                         "tsc" = 1)) 
-
-df_match7 <- matchit(status ~ median_age + Ethnicity + Gender, 
-                     data = df_match7, ratio = 1,
-                     method = flag_match, distance = "glm")
-
-df_match7 <- match.data(df_match7)
-
-df_match7 <- downsampleMatch(df_match7, df)
-
-df_match7 <- df_match7 %>%
-  # # merge in ConceptIDs
-  # left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
-  # merge in propagated HPO terms
-  left_join(hpo_map, by = "ConceptID") %>%
-  rename(term = name) %>%
-  left_join(prop_map, by = "term") %>%
-  select(-term) %>%
-  rename(term = prop_terms) %>%
-  na.omit %>%
-  unnest(cols = c(term)) %>%
-  # recode for later enrichment plots
-  rename(group = status) %>%
-  mutate(group = as.logical(group))
-
-## Group 8: SCN1A vs. CDKL5
+## Group: SCN1A vs. CDKL5
 df_match8 <- df_match %>%
   filter(status %in% c("scn1a", "cdkl5")) %>%
   mutate(status = recode(status, 
                          "cdkl5" = 0,
                          "scn1a" = 1)) 
-
-# df_match8 <- matchit(status ~ median_age + Ethnicity + Gender, 
-#                      data = df_match8, ratio = 1,
-#                      method = flag_match, distance = "glm")
-# 
-# df_match8 <- match.data(df_match8)
-# 
-# df_match8 <- downsampleMatch(df_match8, df)
 
 df_match8 <- df_match8 %>%
   # # merge in ConceptIDs
@@ -437,7 +214,8 @@ tbl_person <- df_person %>%
                             "C5441846" = "Hispanic or Latino",
                             "None" = "Unknown")) %>% 
   summary_factorlist(dependent = "GENEPOS_comb", 
-                     explanatory = c("Gender", "Ethnicity", "ProcAge", "min_age", "median_age", "max_age"),
+                     explanatory = c("Gender", "Ethnicity", "ProcAge", 
+                                     "min_age", "median_age", "max_age"),
                      p = TRUE, na_include = TRUE)  %>%
   knitr::kable("html") %>%
   kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE) 
@@ -607,16 +385,7 @@ p5 <- df_encounters_age %>%
   xlab("Age (years)")
 
 ### ENRICHMENT PLOTS -----------------------------------------------------------
-## Group 0: non-genetic vs. non-genetic (null)
-enrich0 <- df_match0 %>%
-  enrichmentPlot(., ont_hpo, forest = TRUE)
-
-enrich0$plot <- enrich0$plot +
-  coord_fixed(xlim = c(0, .3), ylim = c(0, .3)) +
-  ggtitle("Null") +
-  theme(plot.title = element_text(hjust = 0.5, size = 18))
-
-## Group 1: genetic vs. non-genetic
+## Group: genetic vs. non-genetic
 enrich1 <- df_match1 %>%
   enrichmentPlot(., ont_hpo, forest = TRUE)
 
@@ -631,103 +400,7 @@ enrich1$plot <- enrich1$plot +
   ggtitle("Genetic vs. Non-Genetic") +
   theme(plot.title = element_text(hjust = 0.5, size = 18))
 
-## Group 2: SCN1A vs. Genetic
-enrich2 <- df_match2 %>%
-  enrichmentPlot(., ont_hpo, forest = TRUE)
-
-# manual labels
-enrich2$plot$data$expcat_text <- NA
-enrich2$plot$data[enrich2$plot$data$description == "Seizure", ]$expcat_text <- "Seizure"
-enrich2$plot$data[enrich2$plot$data$description == "Abnormality of movement", ]$expcat_text <- "Abnormality of movement"
-enrich2$plot$data[enrich2$plot$data$description == "Abnormality of the cardiovascular system", ]$expcat_text <- "Abnormality of the cardiovascular system"
-enrich2$plot$data[enrich2$plot$data$description == "Infection-related seizure", ]$expcat_text <- "Infection-related seizure"
-
-enrich2$plot <- enrich2$plot +
-  coord_fixed(xlim = c(0, .2), ylim = c(0, .2)) +
-  ggtitle("SCN1A vs. Genetic") +
-  theme(plot.title = element_text(hjust = 0.5, size = 18))
-
-## Group 3: CDKL5 vs. Genetic
-enrich3 <- df_match3 %>%
-  enrichmentPlot(., ont_hpo, forest = TRUE)
-
-# manual labels
-enrich3$plot$data$expcat_text <- NA
-enrich3$plot$data[enrich3$plot$data$description == "Arrhythmia", ]$expcat_text <- "Arrhythmia"
-enrich3$plot$data[enrich3$plot$data$description == "Abnormality of movement", ]$expcat_text <- "Abnormality of movement"
-enrich3$plot$data[enrich3$plot$data$description == "Abnormal inflammatory response", ]$expcat_text <- "Abnormal inflammatory response"
-enrich3$plot$data[enrich3$plot$data$description == "Low levels of vitamin D", ]$expcat_text <- "Low levels of vitamin D"
-
-enrich3$plot <- enrich3$plot +
-  coord_fixed(xlim = c(0, .5), ylim = c(0, .5)) +
-  ggtitle("CDKL5 vs. Genetic") +
-  theme(plot.title = element_text(hjust = 0.5, size = 18))
-
-## Group 4: SCN1A vs. Non-Genetic
-enrich4 <- df_match4 %>%
-  enrichmentPlot(., ont_hpo, forest = TRUE)
-
-# manual labels
-enrich4$plot$data$expcat_text <- NA
-enrich4$plot$data[enrich4$plot$data$description == "Seizure", ]$expcat_text <- "Seizure"
-enrich4$plot$data[enrich4$plot$data$description == "Morphological central nervous system abnormality", ]$expcat_text <- "Morphological central nervous system abnormality"
-enrich4$plot$data[enrich4$plot$data$description == "Muscle weakness", ]$expcat_text <- "Muscle weakness"
-enrich4$plot$data[enrich4$plot$data$description == "Infection-related seizure", ]$expcat_text <- "Infection-related seizure"
-
-enrich4$plot <- enrich4$plot +
-  coord_fixed(xlim = c(0, .35), ylim = c(0, .35)) +
-  ggtitle("SCN1A vs. Non-Genetic") +
-  theme(plot.title = element_text(hjust = 0.5, size = 18))
-
-## Group 5: CDKL5 vs. Non-Genetic
-enrich5 <- df_match5 %>%
-  enrichmentPlot(., ont_hpo, forest = TRUE)
-
-# manual labels
-enrich5$plot$data$expcat_text <- NA
-enrich5$plot$data[enrich5$plot$data$description == "Arrhythmia", ]$expcat_text <- "Arrhythmia"
-enrich5$plot$data[enrich5$plot$data$description == "Abnormality of the nervous system", ]$expcat_text <- "Abnormality of the nervous system"
-enrich5$plot$data[enrich5$plot$data$description == "Abnormal inflammatory response", ]$expcat_text <- "Abnormal inflammatory response"
-enrich5$plot$data[enrich5$plot$data$description == "Low levels of vitamin D", ]$expcat_text <- "Low levels of vitamin D"
-
-enrich5$plot <- enrich5$plot +
-  coord_fixed(xlim = c(0, .4), ylim = c(0, .4)) +
-  ggtitle("CDKL5 vs. Non-Genetic") +
-  theme(plot.title = element_text(hjust = 0.5, size = 18))
-
-## Group 6: TSC vs. Genetic
-enrich6 <- df_match6 %>%
-  enrichmentPlot(., ont_hpo, forest = TRUE)
-
-# manual labels
-enrich6$plot$data$expcat_text <- NA
-enrich6$plot$data[enrich6$plot$data$description == "Abnormal cardiovascular system physiology", ]$expcat_text <- "Abnormal cardiovascular system physiology"
-enrich6$plot$data[enrich6$plot$data$description == "Visual field defect", ]$expcat_text <- "Visual field defect"
-enrich6$plot$data[enrich6$plot$data$description == "Abnormality of the digestive system", ]$expcat_text <- "Abnormality of the digestive system"
-enrich6$plot$data[enrich6$plot$data$description == "Renal cyst", ]$expcat_text <- "Renal cyst"
-
-enrich6$plot <- enrich6$plot +
-  coord_fixed(xlim = c(0, .4), ylim = c(0, .4)) +
-  ggtitle("TSC vs. Genetic") +
-  theme(plot.title = element_text(hjust = 0.5, size = 18))
-
-## Group 7: TSC vs. Non-Genetic
-enrich7 <- df_match7 %>%
-  enrichmentPlot(., ont_hpo, forest = TRUE)
-
-# manual labels
-enrich7$plot$data$expcat_text <- NA
-enrich7$plot$data[enrich7$plot$data$description == "Abnormal cardiovascular system physiology", ]$expcat_text <- "Abnormal cardiovascular system physiology"
-enrich7$plot$data[enrich7$plot$data$description == "Visual field defect", ]$expcat_text <- "Visual field defect"
-enrich7$plot$data[enrich7$plot$data$description == "Abnormality of the digestive system", ]$expcat_text <- "Abnormality of the digestive system"
-enrich7$plot$data[enrich7$plot$data$description == "Proteinuria", ]$expcat_text <- "Proteinuria"
-
-enrich7$plot <- enrich7$plot +
-  coord_fixed(xlim = c(0, .4), ylim = c(0, .4)) +
-  ggtitle("TSC vs. Non-Genetic") +
-  theme(plot.title = element_text(hjust = 0.5, size = 18))
-
-## Group 8: SCN1A vs. CDKL5
+## Group: SCN1A vs. CDKL5
 enrich8 <- df_match8 %>%
   enrichmentPlot(., ont_hpo, forest = TRUE)
 
@@ -744,38 +417,12 @@ enrich8$plot <- enrich8$plot +
   theme(plot.title = element_text(hjust = 0.5, size = 18))
 
 ### LONGITUDINAL ANALYSIS -----------------------------------------------------
-## obsolete due to longitudinal heatmap plot
-# ## Group 0
-# plong0 <- longitudinalPlot(df_genes, df_match0, odds_plot = TRUE)
-# 
-# ## Group 1
-# plong1 <- longitudinalPlot(df_genes, df_match1, odds_plot = TRUE)
-# 
-# ## Group 2
-# plong2 <- longitudinalPlot(df_genes, df_match2, odds_plot = TRUE)
-# 
-# ## Group 3
-# plong3 <- longitudinalPlot(df_genes, df_match3, odds_plot = TRUE)
-# 
-# ## Group 4
-# plong4 <- longitudinalPlot(df_genes, df_match4, odds_plot = TRUE)
-# 
-# ## Group 5
-# plong5 <- longitudinalPlot(df_genes, df_match5, odds_plot = TRUE)
-# 
-# ## Group 6 
-# plong6 <- longitudinalPlot(df_genes, df_match6, odds_plot = TRUE)
-# 
-# ## Group 7
-# plong7 <- longitudinalPlot(df_genes, df_match7, odds_plot = TRUE)
-
-## Longitudinal heatmap analysis
 plong1f <- longitudinalPlot(df_genes, df_match1, odds_plot = TRUE, filter = FALSE)
 
 # set legend expression (for subscript)
 str_legend <- expression(log['10']*(OR))
 
-# set terms of interest and controls from discovery graph (plong): manually
+# set case terms
 vec_caseterms <- c("HP:0000708", # behav. abnormality
                    "HP:0002719", # recurrent infections
                    "HP:0002311", # incoordination
@@ -789,6 +436,7 @@ vec_caseterms <- c("HP:0000708", # behav. abnormality
                    "HP:0002098", # respiratory distress
                    "HP:0000083") # renal insufficiency
 
+# set control terms
 vec_controlterms <- c("HP:0025234", # parasomnia
                       "HP:0001287", # meningitis
                       "HP:0001342", # cerebral hemorrhage
@@ -797,13 +445,6 @@ vec_controlterms <- c("HP:0025234", # parasomnia
                       "HP:0000388") # Otitis media
 
 vec_longterms <- c(vec_caseterms, vec_controlterms)
-
-# # can also set the labels by n top pvalues/odds
-# vec_longterms <- plong1$plot$data %>%
-#   ungroup %>%
-#   filter(pvalue < 0.05) %>%
-#   slice_min(order_by = odds, n = 40, with_ties = FALSE) %>%
-#   pull(term)
 
 ## heatmap label clustering
 # get list of numeric vectors of odds ratios by term
@@ -816,7 +457,8 @@ dist_ls <- plong1f$plot$data %>%
   lapply(., function(x) {as.numeric(x$odds)})
 
 # pad vector length to equal, rbind into df
-dist_df <- lapply(lapply(sapply(dist_ls, unlist), "length<-", max(lengths(dist_ls))), as.list) %>%
+dist_df <- lapply(lapply(sapply(dist_ls, unlist), "length<-", 
+                         max(lengths(dist_ls))), as.list) %>%
   lapply(., function(x) {unlist(x); as.data.frame(t(x))}) %>%
   rbindlist()
 
@@ -828,11 +470,10 @@ dist_mat[dist_mat == Inf] <- 99
 # calculate distance and clustering
 dist_dist <- dist(dist_mat, method = "euclidean")
 dist_clust <- hclust(dist_dist)
-## end of heatmap label clustering
 
 pheat1 <- plong1f$plot$data %>%
   ungroup() %>%
-  # select terms of interest from discovery graph (plong)
+  # select terms of interest from discovery graph (plong) and filter by significance
   filter(term %in% vec_longterms) %>%
   mutate(odds = ifelse(pvalue > 0.05, NA, odds)) %>%
   # set facet groups
@@ -845,7 +486,6 @@ pheat1 <- plong1f$plot$data %>%
   # plot
   ggplot(aes(x = as.factor(bin), 
              y = description,
-             # y = forcats::fct_relevel(description, rev),
              fill = log10(odds))) + 
   geom_tile(color = "black") +
   geom_text(aes(label = round(odds, 1)), size = 4) +
@@ -862,12 +502,11 @@ pheat1 <- plong1f$plot$data %>%
   xlab("Age at encounter (years)") +
   scale_x_discrete(labels = c("0-2", "2-12", "12-18", ">18")) +
   scale_fill_gradient2(name = "OR",
-                       # name = str_legend,
                        labels = c("0", "", "1", "", "Inf"),
                        low = "#00b4fb",
                        mid = "#F5F5F5",
                        high = "#ff8422",
-                       midpoint = 0, # adjust based on OR or log OR
+                       midpoint = 0, 
                        na.value = "#F5F5F5",
                        limits = c(-2, 2),
                        oob = scales::oob_squish_any)
@@ -908,67 +547,7 @@ for(i in 1:nrow(df_fda)){
 }
 
 # manual recoding
-vec_asm <- df_asm %>%
-  mutate(MED_NAME = case_when(str_detect(MED_NAME, regex('vimpat', ignore_case = T)) ~ 'lacosamide',
-                              str_detect(MED_NAME, regex('lacosamide', ignore_case = T)) ~ 'lacosamide', 
-                              str_detect(MED_NAME, regex('banzel', ignore_case = T)) ~ 'rufinamide',
-                              str_detect(MED_NAME, regex('tegretol', ignore_case = T)) ~ 'carbamazepine',
-                              str_detect(MED_NAME, regex('carbatrol', ignore_case = T)) ~ 'carbamazepine',
-                              str_detect(MED_NAME, regex('topamax', ignore_case = T)) ~ 'topiramate',
-                              str_detect(MED_NAME, regex('topiram', ignore_case = T)) ~ 'topiramate',
-                              str_detect(MED_NAME, regex('qudexy', ignore_case = T)) ~ 'topiramate',
-                              str_detect(MED_NAME, regex('trokendi', ignore_case = T)) ~ 'topiramate',
-                              str_detect(MED_NAME, regex('eprontia', ignore_case = T)) ~ 'topiramate',
-                              str_detect(MED_NAME, regex('spritam', ignore_case = T)) ~ 'levetiracetam',
-                              str_detect(MED_NAME, regex('keppra', ignore_case = T)) ~ 'levetiracetam',
-                              str_detect(MED_NAME, regex('levetir', ignore_case = T)) ~ 'levetiracetam',
-                              str_detect(MED_NAME, regex('sympazan', ignore_case = T)) ~ 'clobazam',
-                              str_detect(MED_NAME, regex('onfi', ignore_case = T)) ~ 'clobazam',
-                              str_detect(MED_NAME, regex('loraze', ignore_case = T)) ~ 'lorazepam',
-                              str_detect(MED_NAME, regex('midazol', ignore_case = T)) ~ 'midazolam',
-                              str_detect(MED_NAME, regex('nayzilam', ignore_case = T)) ~ 'midazolam',
-                              str_detect(MED_NAME, regex('klonopin', ignore_case = T)) ~ 'clonazepam',
-                              str_detect(MED_NAME, regex('lyrica', ignore_case = T)) ~ 'pregabalin',
-                              str_detect(MED_NAME, regex('pregabalin', ignore_case = T)) ~ 'pregabalin',
-                              str_detect(MED_NAME, regex('zonis', ignore_case = T)) ~ 'zonisamide',
-                              str_detect(MED_NAME, regex('zoneg', ignore_case = T)) ~ 'zonisamide',
-                              str_detect(MED_NAME, regex('valtoco', ignore_case = T)) ~ 'diazepam',
-                              str_detect(MED_NAME, regex('diastat', ignore_case = T)) ~ 'diazepam',
-                              str_detect(MED_NAME, regex('valpro', ignore_case = T)) ~ 'valproic acid',
-                              str_detect(MED_NAME, regex('depak', ignore_case = T)) ~ 'valproic acid',
-                              str_detect(MED_NAME, regex('lacosamide', ignore_case = T)) ~ 'lacosamide',
-                              str_detect(MED_NAME, regex('fycompa', ignore_case = T)) ~ 'perampanel',
-                              str_detect(MED_NAME, regex('perampanel', ignore_case = T)) ~ 'perampanel',
-                              str_detect(MED_NAME, regex('fintepla', ignore_case = T)) ~ 'fintepla',
-                              str_detect(MED_NAME, regex('fenfluramine', ignore_case = T)) ~ 'fenfluramine',
-                              str_detect(MED_NAME, regex('lamot', ignore_case = T)) ~ 'lamotrigine',
-                              str_detect(MED_NAME, regex('oxc', ignore_case = T)) ~ 'oxcarbazepine',
-                              str_detect(MED_NAME, regex('trileptal', ignore_case = T)) ~ 'oxcarbazepine',
-                              str_detect(MED_NAME, regex('loraz', ignore_case = T)) ~ 'lorazepam',
-                              str_detect(MED_NAME, regex('vigabatr', ignore_case = T)) ~ 'vigabatrin',
-                              str_detect(MED_NAME, regex('sabril', ignore_case = T)) ~ 'vigabatrin',
-                              str_detect(MED_NAME, regex('tiagab', ignore_case = T)) ~ 'tiagabine',
-                              str_detect(MED_NAME, regex('rufinam', ignore_case = T)) ~ 'rufinamide',
-                              str_detect(MED_NAME, regex('primid', ignore_case = T)) ~ 'primidone',
-                              str_detect(MED_NAME, regex('phenyt', ignore_case = T)) ~ 'phenytoin',
-                              str_detect(MED_NAME, regex('dilantin', ignore_case = T)) ~ 'phenytoin',
-                              str_detect(MED_NAME, regex('epanutin', ignore_case = T)) ~ 'phenytoin',
-                              str_detect(MED_NAME, regex('cerebyx', ignore_case = T)) ~ 'phenytoin',
-                              str_detect(MED_NAME, regex('phenobarb', ignore_case = T)) ~ 'phenobarbital',
-                              str_detect(MED_NAME, regex('gabapent', ignore_case = T)) ~ 'gabapentin',
-                              str_detect(MED_NAME, regex('felbamat', ignore_case = T)) ~ 'felbamate',
-                              str_detect(MED_NAME, regex('everol', ignore_case = T)) ~ 'everolimus',
-                              str_detect(MED_NAME, regex('ethosux', ignore_case = T)) ~ 'ethosumixide',
-                              str_detect(MED_NAME, regex('zaront', ignore_case = T)) ~ 'ethosumixide',
-                              str_detect(MED_NAME, regex('cenoba', ignore_case = T)) ~ 'cenobamate',
-                              str_detect(MED_NAME, regex('xcopri', ignore_case = T)) ~ 'cenobamate',
-                              str_detect(MED_NAME, regex('cannab', ignore_case = T)) ~ 'cannabidiol',
-                              str_detect(MED_NAME, regex('epidiolex', ignore_case = T)) ~ 'cannabidiol',
-                              str_detect(MED_NAME, regex('briv', ignore_case = T)) ~ 'brivaracetam',
-                              str_detect(MED_NAME, regex('stiri', ignore_case = T)) ~ 'stiripentol',
-                              str_detect(MED_NAME, regex('celontin', ignore_case = T)) ~ 'mesuximide',
-                              str_detect(MED_NAME, regex('eslicarbazepine', ignore_case = T)) ~ 'eslicarbazepine acetate')) %>%
-  pull(MED_NAME)
+vec_asm <- recodeASM(df_asm)
 
 # merge matches, drop non-matched rows and unneeded columns
 df_asm$MED_NAME <- vec_asm
@@ -987,7 +566,6 @@ df_med <- df_asm %>%
   mutate(AgePrescription = difftime(MED_START_DATE, DateOfBirth, units = "days")) %>%
   mutate(MonthsPrescription = as.numeric(round(AgePrescription/30, 0))) %>%
   mutate(YearsPrescription = as.numeric(AgePrescription/365.2425))
-# mutate(YearsPrescription = as.numeric(round(AgePrescription/365, 0)))
 
 ## Descriptive stats
 df_med <- df_med %>%
@@ -996,40 +574,8 @@ df_med <- df_med %>%
   mutate(n_all_prescriptions = n_distinct(MonthsPrescription)) # number of all prescriptions per patient
 
 ## Group analysis: Heatmap (OR)
-# define ASM groups, cf. doi.org/10.1007/s40263-021-00827-8
-asm_map <- tibble(MED_NAME = asm_vec,
-                  MED_GROUP = NA) %>%
-  mutate(MED_GROUP = case_when(
-    str_detect(MED_NAME, regex('felbam', ignore_case = T)) ~ 'Mixed/unknown',
-    str_detect(MED_NAME, regex('valpr', ignore_case = T)) ~ 'Mixed/unknown',
-    str_detect(MED_NAME, regex('hormon', ignore_case = T)) ~ 'Mixed/unknown',
-    str_detect(MED_NAME, regex('zonis', ignore_case = T)) ~ 'Mixed/unknown',
-    str_detect(MED_NAME, regex('rufin', ignore_case = T)) ~ 'Mixed/unknown',
-    str_detect(MED_NAME, regex('cannab', ignore_case = T)) ~ 'Mixed/unknown',
-    str_detect(MED_NAME, regex('cenob', ignore_case = T)) ~ 'Mixed/unknown',
-    str_detect(MED_NAME, regex('topira', ignore_case = T)) ~ 'Mixed/unknown',
-    str_detect(MED_NAME, regex('phenyt', ignore_case = T)) ~ 'Na',
-    str_detect(MED_NAME, regex('carbamaz', ignore_case = T)) ~ 'Na',
-    str_detect(MED_NAME, regex('carbaz', ignore_case = T)) ~ 'Na',
-    str_detect(MED_NAME, regex('lamotr', ignore_case = T)) ~ 'Na',
-    str_detect(MED_NAME, regex('lacosam', ignore_case = T)) ~ 'Na',
-    str_detect(MED_NAME, regex('suxim', ignore_case = T)) ~ 'Ca',
-    str_detect(MED_NAME, regex('gabap', ignore_case = T)) ~ 'Ca',
-    str_detect(MED_NAME, regex('pregabal', ignore_case = T)) ~ 'Ca',
-    str_detect(MED_NAME, regex('phenobarb', ignore_case = T)) ~ 'GABA',
-    str_detect(MED_NAME, regex('primidon', ignore_case = T)) ~ 'GABA',
-    str_detect(MED_NAME, regex('stirip', ignore_case = T)) ~ 'GABA',
-    str_detect(MED_NAME, regex('azol', ignore_case = T)) ~ 'GABA',
-    str_detect(MED_NAME, regex('azepam', ignore_case = T)) ~ 'GABA',
-    str_detect(MED_NAME, regex('clobaz', ignore_case = T)) ~ 'GABA',
-    str_detect(MED_NAME, regex('tiaga', ignore_case = T)) ~ 'GABA',
-    str_detect(MED_NAME, regex('vigabatr', ignore_case = T)) ~ 'GABA',
-    str_detect(MED_NAME, regex('peramp', ignore_case = T)) ~ 'AMPA',
-    str_detect(MED_NAME, regex('brivara', ignore_case = T)) ~ 'SV2A',
-    str_detect(MED_NAME, regex('levetir', ignore_case = T)) ~ 'SV2A',
-    str_detect(MED_NAME, regex('fenfl', ignore_case = T)) ~ '5-HT',
-    str_detect(MED_NAME, regex('everol', ignore_case = T)) ~ 'MTOR'
-  ) )
+# define ASM groups
+asm_map <- groupASM(asm_vec)
 
 # take strict matched case-control set
 df_heatmap <- df_match1 %>%
@@ -1037,9 +583,7 @@ df_heatmap <- df_match1 %>%
   distinct(PatientId, group) %>%
   left_join(df_med, by = "PatientId") %>%
   na.omit %>%
-  ## define bin width by equal prescription frequency
-  # mutate(YearsPrescription = cut_number(YearsPrescription, 4)) %>%
-  ## fixed predefined bin width
+  ## fixed bin width by ILAE age categories
   mutate(YearsPrescription = cut(YearsPrescription, breaks = c(0, 2, 12, 18, Inf))) %>%
   # count ASM prescription per group; for each age bin (year)
   group_by(group, MED_NAME, YearsPrescription) %>%
@@ -1090,18 +634,17 @@ p_asm <- df_heatmap %>%
   xlab("Age at prescription (years)") +
   scale_x_discrete(labels = c("0-2", "2-12", "12-18", ">18")) +
   scale_fill_gradient2(name = "OR",
-                       # name = str_legend,
                        labels = c("0", "", "1", "", "Inf"),
                        low = "#00b4fb",
                        mid = "#F5F5F5",
                        high = "#ff8422",
-                       midpoint = 0, # adjust based on OR or log OR
+                       midpoint = 0, 
                        na.value = "#F5F5F5",
                        limits = c(-2, 2),
                        oob = scales::oob_squish_any)
 
 ### NON-HPO CONCEPT ANALYSIS ---------------------------------------------------
-# the basic concept: find out how many UMLS concepts do not match to HPO terms
+# find out how many UMLS concepts do not match to HPO terms
 # find patterns in these concepts, e.g. healthcare utilization or procedures
 
 ## data
@@ -1146,7 +689,8 @@ df_commonconcepts <- df_concepts %>%
 # subset to matched cohort; cross-sectional for now
 df_conceptmatch <- df_match1 %>%
   distinct(PatientId, group) %>%
-  left_join(df_concepts[, c("PatientId", "ConceptID", "ConceptDesc")], by = "PatientId") %>%
+  left_join(df_concepts[, c("PatientId", "ConceptID", "ConceptDesc")], 
+            by = "PatientId") %>%
   distinct()
 
 # count by group, then do Fisher's test
@@ -1188,11 +732,9 @@ df_conceptmatch <- df_conceptmatch %>%
 df_conceptmatch <- df_conceptmatch %>%
   left_join(umls_map, by = "ConceptID")
 
-# manual annotation
+# manual annotation (labels missing in MRCONSO.RFF)
 df_conceptmatch[df_conceptmatch$ConceptID == "C0478107", ]$ConceptDesc <- NA
 df_conceptmatch[df_conceptmatch$ConceptID == "C0476431", ]$ConceptDesc <- NA
-# df_conceptmatch[df_conceptmatch$ConceptID == "C0478107", ]$ConceptDesc <- "Other specified chromosome abnormalities"
-# df_conceptmatch[df_conceptmatch$ConceptID == "C0476431", ]$ConceptDesc <- "Abnormal karyotype"
 df_conceptmatch[df_conceptmatch$ConceptID == "C2875116", ]$ConceptDesc <- "Generalized epilepsy and epileptic syndromes, intractable"
 df_conceptmatch[df_conceptmatch$ConceptID == "C2910620", ]$ConceptDesc <- "Screening for cardiovascular disorders"
 df_conceptmatch[df_conceptmatch$ConceptID == "C3161331", ]$ConceptDesc <- "Unspecified intellectual disabilities"
@@ -1217,7 +759,7 @@ p_forest_nonhpo <- df_conceptmatch %>%
   xlab("Odds ratio (95% CI, log scale)")
 
 ### TRANSITION ANALYSIS --------------------------------------------------------
-# the idea: find what drives the increase in encounters for likely genetic
+# find what drives the increase in encounters for likely genetic
 # patients during the transition to adult care (ages 18-20 years)
 
 ## get data
@@ -1254,9 +796,10 @@ df_trans <- df_trans %>%
 # get descriptions
 df_trans <- df_trans %>%
   left_join(umls_map, by = "ConceptID")
-# note: compare to non-genetic cohort, sorted by p-value or frequency in the positive transition group
+# note: compare to non-genetic cohort
+# sorted by p-value or frequency in the positive transition group
 
-# manual annotation
+# manual annotation for plot and recoding of synonymous concepts
 df_trans[df_trans$ConceptID == "C0260698", ]$ConceptDesc <- "Other postprocedural status"
 df_trans[df_trans$ConceptID == "C0036421", ]$ConceptDesc <- "Systemic Scleroderma"
 df_trans[df_trans$ConceptID == "C0260860", ]$ConceptDesc <- "Encounter due to Unspecified general medical examination"
@@ -1300,6 +843,7 @@ pt1 <- df_trans %>%
   xlab("Odds ratio (95% CI, log scale)")
 
 # forest plot: nongenetic group
+# manual annotation for plot and recoding of synonymous concepts
 df_trans[df_trans$ConceptID == "C2887465", ]$ConceptDesc <- NA
 df_trans[df_trans$ConceptID == "C0042870", ]$ConceptDesc <- "Vitamin D Deficiency"
 df_trans[df_trans$ConceptID == "C2910447", ]$ConceptDesc <- "Encounter for general adult medical examination without abnormal findings"
@@ -1381,12 +925,6 @@ arcs(graph_hpo) <- arcs
 
 # revert to igraph and format graph
 g2 <- as.igraph(graph_hpo)
-## note: complete term name labels are just impossible to format with igraph
-# V(g2)$label <- NA
-# V(g2)[vec_min]$label <- paste0("\n", "\n", "\n", "\n", "\n", "\n", "\n", df_desc$description)
-# V(g2)["HP:0003244"]$label <- paste0("\n","\n","\n","\n","\n", "\n", "\n", "\n", "\n", "\t","Penile hypospadia")
-# V(g2)["HP:0000028"]$label <- paste0("\n", "\n", "\n", "\n", "\n", "\t","Cryptorchidism")
-# V(g2)["HP:0000086"]$label <- paste0("\n", "\n", "\t","Ectopic kidney")
 V(g2)$label <- NA
 V(g2)[vec_min]$label <- rep(LETTERS)[1:length(V(g2)[vec_min]$label)]
 V(g2)$color <- "gray"
@@ -1404,15 +942,14 @@ pqg <- as.ggplot(expression(plot(g2,
                                  vertex.label.family = "Helvetica",
                                  vertex.label.font = 1,
                                  vertex.label.cex = .9,
-                                 # vertex.label.dist = 2.5,
                                  edge.arrow.size = .5,
-                                 layout = layout_as_tree))) # Reingold-Tilford graph
+                                 layout = layout_as_tree))) # Reingold-Tilford 
 
 pqg <- pqg + 
   theme(plot.margin = unit(c(-50, -20, -50, -50), "pt"))
 
 ### GENERATE REPORT ------------------------------------------------------------
-# set global option of decimal point to midline
+# set global option of decimal point to midline for Lancet
 options(OutDec = "·")
 
 ## Figure 1: Descriptive statistics of the study cohort.
@@ -1472,5 +1009,3 @@ pdf(file = "Fig3.pdf",
 Fig3
 
 dev.off()
-
-

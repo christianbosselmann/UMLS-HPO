@@ -1,4 +1,14 @@
-# helper functions for HPO analysis
+### UMLS-HPO ANALYSIS OF INDIVIDUALS WITH GENETIC EPILEPSY SYNDROMES -----------
+## Helper functions
+##
+## Author: Christian Bosselmann, MD
+##
+## Date Created: 2023-02-07
+##
+## Copyright (c) Christian Bosselmann, 2023
+## Email: bosselc@ccf.org
+##
+### ----------------------------------------------------------------------------
 
 ### visualize relative term frequency as enrichment plot
 #' @param data data.frame of Surgery, ConceptID (UMLS), term (HPO), and two groups to compare (TRUE; FALSE)
