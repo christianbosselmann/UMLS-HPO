@@ -475,6 +475,13 @@ dist_clust <- hclust(dist_dist)
 
 pheat1 <- plong1f$plot$data %>%
   ungroup() %>%
+  # get each combination of bin and term
+  mutate(bin = replace_na(bin, 99)) %>%
+  mutate(bin = as.factor(bin)) %>%
+  complete(bin, description) %>%
+  group_by(description) %>%
+  mutate(term = unique(term[!is.na(term)])) %>%
+  ungroup() %>%
   # select terms of interest from discovery graph (plong) and filter by significance
   filter(term %in% vec_longterms) %>%
   mutate(odds = ifelse(pvalue > 0.05, NA, odds)) %>%
@@ -612,15 +619,25 @@ df_heatmap <- df_match1 %>%
   left_join(asm_map, by = "MED_NAME") %>%
   # define factor levels
   mutate(MED_NAME = factor(MED_NAME, levels = sort(unique(asm_vec)))) %>%
-  # frequency filter
+  # # frequency filter
+  # ungroup() %>%
+  # mutate(freqY = Y/max(Y)) %>%
+  # mutate(freqN = N/max(N)) %>%
+  # filter(freqY > 0.01 & freqN > 0.01)
+  # another frequency filter
   ungroup() %>%
   mutate(freqY = Y/max(Y)) %>%
   mutate(freqN = N/max(N)) %>%
-  filter(freqY > 0.01 & freqN > 0.01)
+  mutate(OR = ifelse(freqY > 0.01 & freqN > 0.01, OR, NA))
 
 # plot
 p_asm <- df_heatmap %>%
   mutate(MED_NAME = str_to_title(MED_NAME)) %>%
+  # filter rows with no significant associations
+  group_by(MED_NAME) %>%
+  filter(any(!is.na(OR))) %>%
+  ungroup() %>%
+  # plot
   ggplot(aes(x = YearsPrescription, 
              y = MED_NAME,
              fill = log10(OR))) + 
@@ -1176,11 +1193,12 @@ coul <- colorRampPalette(brewer.pal(8, "Reds"))(25)
 
 # plot
 p_pheindex_heatmap <- pheatmap(mat_pheno,
-                       display_numbers = TRUE,
-                       symm = TRUE,
-                       col = coul,
-                       xlab = "PheIndex criteria (#)",
-                       ylab = "PheIndex criteria (#)")
+                               display_numbers = TRUE,
+                               symm = TRUE,
+                               col = coul,
+                               fontsize_number = 6,
+                               xlab = "PheIndex criteria (#)",
+                               ylab = "PheIndex criteria (#)")
 
 p_pheindex_heatmap <- ggplotify::as.ggplot(p_pheindex_heatmap) 
 
@@ -1332,7 +1350,7 @@ dev.off()
 
 ## Figure S2: PheIndex plots
 FigS2 <- cowplot::plot_grid(p_pheindex_violin, p_pheindex_bar, p_pheindex_heatmap,
-                          nrow = 1, labels = "AUTO", align = "hv")
+                            nrow = 1, labels = "AUTO", align = "hv")
 
 pdf(file = "FigS2.pdf",
     width = 12,
