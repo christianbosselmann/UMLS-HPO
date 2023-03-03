@@ -29,7 +29,9 @@ librarian::shelf(tidyverse,
                  qgraph,
                  igraph,
                  bnlearn,
-                 ggplotify)
+                 ggplotify,
+                 survminer,
+                 RColorBrewer)
 
 # functions
 source("func.R")
@@ -878,6 +880,315 @@ pt <- cowplot::plot_grid(pt1 + theme(axis.title.x = element_blank()),
                          pt2, 
                          ncol = 1, align = "v")
 
+### MORTALITY ------------------------------------------------------------------
+## data
+df_deaths <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/Deathdates.csv",
+                      col_names = c("MedicalRecordNumber", "Status", "DateOfDeath"))
+
+# map to PatientId
+mrn_map <- df_raw %>% distinct(PatientId, MedicalRecordNumber)
+
+df_deaths <- df_deaths %>%
+  left_join(mrn_map, by = "MedicalRecordNumber")
+
+# get age at death
+dob_map <- df_raw %>% distinct(PatientId, DateOfBirth)
+
+df_deaths <- df_deaths %>%
+  left_join(dob_map, by = "PatientId")
+
+df_deaths <- df_deaths %>%
+  mutate(DateOfBirth = as.Date(DateOfBirth, format = "%m/%d/%y")) %>%
+  mutate(DateOfDeath = as.Date(DateOfDeath, format = "%m/%d/%Y")) %>%
+  mutate(AgeAtDeath = DateOfDeath - DateOfBirth)
+
+# add death dates to matched cohort; only keep distinct patient-death pairs
+df_death1 <- df_match1 %>%
+  left_join(df_deaths[ ,c("PatientId", "AgeAtDeath")], by = "PatientId")
+
+# change ContactAge to days for survival analysis
+df_death1 <- df_death1 %>%
+  mutate(ContactAge = ContactAge*365)
+
+# if a patient is deceased, set their age at last contact for the survival analysis
+df_death1 <- df_death1 %>%
+  mutate(isDead = if_else(!is.na(AgeAtDeath), 1, 0))
+
+df_surv <- df_death1 %>%
+  filter(isDead == 1) %>%
+  group_by(PatientId) %>%
+  slice_max(order_by = ContactAge, n = 1) %>%
+  mutate(survivalFlag = 1)
+
+df_surv <- left_join(df_death1, df_surv) %>%
+  mutate(survivalFlag = if_else(is.na(survivalFlag),0,1))
+
+# reduce to single encounters
+df_surv <- df_surv %>%
+  distinct(PatientId, group, ContactAge, survivalFlag)
+
+# preprocessing for suvival analysis
+df_surv <- df_surv %>%
+  mutate(group = as.integer(group)) %>%
+  mutate(ContactAge = as.numeric(ContactAge)/365)
+
+# for each patient, keep only their last known status
+df_surv <- df_surv %>%
+  group_by(PatientId) %>%
+  slice_max(order_by = ContactAge, n = 1)
+
+km_fit <- survfit(Surv(ContactAge, survivalFlag) ~ group, data = df_surv)
+
+p_surv <- survminer::ggsurvplot(km_fit, data = df_surv,
+                                pval = TRUE,
+                                risk.table = "nrisk_cumcensor",
+                                pval.coord = c(2, 0.55),
+                                ggtheme = theme_classic(),
+                                xlab = c("Age (years)"),
+                                xlim = c(0, 25), ylim = c(0.50, 1.0),
+                                legend = c(0.8, 0.15),
+                                legend.labs = c("Non-genetic", "Likely genetic"),
+                                palette = "Dark2") 
+
+### INPATIENT / OUTPATIENT STATS -----------------------------------------------
+## data: use prescription and admission data to find inpatient/outpatient encounters
+df_stays <- df_med %>%
+  distinct(PatientId, AgePrescription, ORD_MODE_DESC)
+
+df_nstays <- df_stays %>%
+  mutate(ORD_MODE_DESC = factor(ORD_MODE_DESC, levels = c("INPATIENT", "OUTPATIENT"))) %>%
+  group_by(PatientId, .drop = FALSE) %>%
+  count(ORD_MODE_DESC)
+
+# find PatientIds who had multiple inpatient encounters
+df_inpatient <- df_nstays %>%
+  filter(ORD_MODE_DESC == "INPATIENT" & n > 1) %>%
+  mutate(hasInpatient = TRUE)
+
+### PHEINDEX SCORING -----------------------------------------------------------
+## ref: https://www.medrxiv.org/content/10.1101/2023.01.27.23285056v1.full.pdf
+## data: list of PatientIds, ContactAges, group membership and concepts
+df_pheindex <- df_concepts[df_concepts$PatientId %in% df_match1$PatientId, ] %>%
+  distinct(PatientId, ConceptID) %>%
+  mutate(score = 0)
+
+## C0: list of dataframes for scoring
+ls_pheindex <- list()
+
+## C1: Prolonged stay in the neonatal intensive care unit
+# data not available
+
+## C2: Prolonged or multiple hospitalizations after discharged from birth
+# hasInpatient flag from df_inpatient
+ls_pheindex[[2]]  <- df_inpatient %>%
+  distinct(PatientId, hasInpatient) %>%
+  filter(hasInpatient == TRUE) %>%
+  mutate(score = 3)
+
+## C3: Visits or consults with multiple specialists other than general pediatricians.
+# True for all patients (due to cohort definition)
+ls_pheindex[[3]]  <- df_pheindex %>%
+  distinct(PatientId) %>%
+  mutate(score = 3)
+
+## C4: Multiple emergency room (ER) visits.
+# NA
+
+## C5: Feeding support (Gastrostomy tube).
+ls_pheindex[[5]] <- rbind(
+  # df_pheindex[df_pheindex$ConceptID == "C0699815", ], # Feeding difficulties and mismanagement
+  # df_pheindex[df_pheindex$ConceptID == "C0159023", ], # Feeding problems in newborn
+  # df_pheindex[df_pheindex$ConceptID == "C5539211", ], # Other feeding difficulties
+  df_pheindex[df_pheindex$ConceptID == "C0260683", ], # Gastrostomy status
+  # df_pheindex[df_pheindex$ConceptID == "C0270273", ], # Slow feeding in newborn
+  # df_pheindex[df_pheindex$ConceptID == "C5539209", ], # Feeding difficulties, unspecified
+  # df_pheindex[df_pheindex$ConceptID == "C0478153", ], # Other symptoms and signs concerning food and fluid intake
+  df_pheindex[df_pheindex$ConceptID == "C0260761", ] # Encounter for attention to gastrostomy
+) %>%
+  distinct(PatientId, score) %>%
+  mutate(score = 2)
+
+## C6: Respiratory support (tracheostomy and mechanical ventilation outside of surgery).
+ls_pheindex[[6]] <- rbind(
+  # df_pheindex[df_pheindex$ConceptID == "C0348712", ], # Other disorders of lung
+  # df_pheindex[df_pheindex$ConceptID == "C0431510", ], # Other anomalies of larynx, trachea, and bronchus
+  # df_pheindex[df_pheindex$ConceptID == "C0029601", ], # Other respiratory anomalies
+  df_pheindex[df_pheindex$ConceptID == "C0260682", ], # Tracheostomy status
+  # df_pheindex[df_pheindex$ConceptID == "C0748355", ], # Acute respiratory distress
+  # df_pheindex[df_pheindex$ConceptID == "C0456017", ], # Chronic respiratory disease in perinatal period
+  df_pheindex[df_pheindex$ConceptID == "C2911575", ] # Dependence on respirator [ventilator] status
+  # df_pheindex[df_pheindex$ConceptID == "C2977073", ] # Respiratory failure, unspecified
+) %>%
+  distinct(PatientId, score) %>%
+  mutate(score = 2)
+
+## C7: Imaging.
+# NA
+
+## C8: Genetic diagnostic tests.
+# True for all likely genetic patients, false for all non-genetic patients.
+ls_pheindex[[8]] <- df_match1 %>%
+  distinct(PatientId, group) %>%
+  filter(group == TRUE) %>%
+  mutate(score = 1)
+
+## C9: Metabolic diagnostic tests
+ls_pheindex[[9]] <- rbind(
+  df_pheindex[df_pheindex$ConceptID == "C0494356", ], # Hypo-osmolality and hyponatremia
+  df_pheindex[df_pheindex$ConceptID == "C0020645", ], # Hyposmolality and/or hyponatremia
+  df_pheindex[df_pheindex$ConceptID == "C0029481", ] # Other abnormal blood chemistry
+) %>%
+  distinct(PatientId, score) %>%
+  mutate(score = 1)
+
+## C10: In-hospital death
+# True for all deaths in survival analysis, false otherwise
+ls_pheindex[[10]] <- df_surv %>%
+  filter(survivalFlag == 1) %>%
+  distinct(PatientId) %>%
+  mutate(score = 3)
+
+## C11: Developmental delay.
+ls_pheindex[[11]] <- rbind(
+  df_pheindex[df_pheindex$ConceptID == "C0424605", ], # Developmental delay
+  df_pheindex[df_pheindex$ConceptID == "C0878706", ], # Lack of normal physiological development, unspecified
+  df_pheindex[df_pheindex$ConceptID == "C0476241", ], # Delayed developmental milestones
+  df_pheindex[df_pheindex$ConceptID == "C0878753", ], # Unspecified lack of expected normal physiological development in childhood
+  df_pheindex[df_pheindex$ConceptID == "C0154633", ], # Other developmental speech or language disorder
+  df_pheindex[df_pheindex$ConceptID == "C2830458", ], # Delayed milestone in childhood
+  df_pheindex[df_pheindex$ConceptID == "C0011757", ], # Developmental Coordination Disorder
+  df_pheindex[df_pheindex$ConceptID == "C0349324", ], # Other developmental disorders of speech and language
+  df_pheindex[df_pheindex$ConceptID == "C0236826", ], # Developmental expressive language disorder
+  df_pheindex[df_pheindex$ConceptID == "C3161331", ] # Unspecified intellectual disabilities
+) %>%
+  distinct(PatientId, score) %>%
+  mutate(score = 1)
+
+## C12: Diagnosis codes corresponding to metabolic diseases with ≥ 2 encounters
+ls_pheindex[[12]] <- rbind(
+  df_pheindex[df_pheindex$ConceptID == "C0025517", ], # Metabolic Diseases
+  df_pheindex[df_pheindex$ConceptID == "C0268641", ] # Amino acid transport disorder
+) %>%
+  distinct(PatientId, score) %>%
+  mutate(score = 3)
+
+## C13: Heart surgeries
+ls_pheindex[[13]] <- rbind(
+  df_pheindex[df_pheindex$ConceptID == "C2921289", ], # Personal history of (corrected) congenital malformations of heart and circulatory system 
+  df_pheindex[df_pheindex$ConceptID == "C0477999", ] # Other specified congenital malformations of heart
+) %>%
+  distinct(PatientId, score) %>%
+  mutate(score = 3)
+
+## get group membership for each patient, calculate pheindex scores
+df_pheindex <- lapply(ls_pheindex, function(x){x <- x[,c("PatientId", "score")]}) %>%
+  rbindlist(idcol = "id")
+
+map_match <- df_match1 %>%
+  distinct(PatientId, group)
+
+df_pheindex <- df_pheindex %>%
+  group_by(PatientId) %>%
+  summarize(score = sum(score)) %>%
+  left_join(map_match) %>%
+  na.omit
+
+stats_pheindex <- df_pheindex %>%
+  group_by(group) %>%
+  summarize(mean = mean(score),
+            sd = sd(score),
+            min = min(score),
+            max = max(score),
+            iqr = IQR(score))
+
+stats_p_pheindex <- df_pheindex %>%
+  summarize(pval = t.test(score ~ group)$p.value)
+
+## recode
+df_pheindex <- df_pheindex %>%
+  mutate(group = as.integer(group))
+
+df_pheindex$label <- NA
+df_pheindex[df_pheindex$group == 0, ]$label <- "Non-genetic"
+df_pheindex[df_pheindex$group == 1, ]$label <- "Likely genetic"
+
+## visualization: PhenIndex by group
+p_pheindex_violin <-df_pheindex %>%
+  mutate(label = as.factor(label)) %>%
+  ggplot(aes(y = score, x = label, fill = label)) +
+  geom_flat_violin(position = position_nudge(x = .1, y = 0), alpha = .8) +
+  guides(fill = "none", color = "none") +
+  scale_color_brewer(palette = "Dark2") +
+  scale_fill_brewer(palette = "Dark2") +
+  xlab("Group") +
+  ylab("PheIndex score") +
+  theme_classic() + 
+  coord_cartesian(xlim = c(1.5, 2)) +
+  geom_boxplot(width = .1, show.legend = FALSE, outlier.shape = NA, alpha = 0.5) +
+  ggpubr::stat_compare_means(aes(label = ..p.signif..), 
+                             comparisons = list(c("Non-genetic", "Likely genetic")),
+                             label.x = 1.5, label.y = c(15))
+
+## visualization: PhenIndex categories by group (id)
+df_phenindex <- lapply(ls_pheindex, function(x){x <- x[,c("PatientId", "score")]}) %>%
+  rbindlist(idcol = "id") %>%
+  group_by(PatientId, id) %>%
+  summarize(score = sum(score)) %>%
+  left_join(map_match) %>%
+  na.omit
+
+p_pheindex_bar <- df_phenindex %>%
+  ggplot(aes(x = as.factor(id), fill = group)) +
+  geom_bar(position = position_dodge2(width = 0.9, preserve = "single")) +
+  xlab("PheIndex criteria (#)") +
+  ylab("Individuals (n)") +
+  guides(fill = "none", color = "none") +
+  scale_color_brewer(palette = "Dark2") +
+  scale_fill_brewer(palette = "Dark2", labels = c("Non-genetic", "Likely genetic")) +
+  theme_classic() +
+  coord_cartesian(expand = FALSE) 
+
+# PheIndex criteria pairwise similarity heatmap
+df_phenindex <- df_phenindex %>%
+  mutate(id = as.factor(id))
+
+ls_phenindex <- split(df_phenindex, df_phenindex$id)
+ls_phenindex <- lapply(ls_phenindex, function(x){x <- x$PatientId})
+
+df_prop <- ls_phenindex %>% 
+  map_dfr(~ .x %>% as_tibble(), .id = "name") 
+
+df_prop <- reshape2::dcast(df_prop, name ~ value, length)
+
+df_prop <- df_prop[,-1]
+df_prop[df_prop > 0] <- 1 
+
+mat_pheno <- proxy::simil(x = df_prop,
+                          method = "cosine") # "jaccard", "euclidean", "cosine"
+
+mat_pheno <- as.matrix(mat_pheno)
+diag(mat_pheno) <- 1
+
+colnames(mat_pheno) <- levels(df_phenindex$id)
+rownames(mat_pheno) <- levels(df_phenindex$id)
+
+coul <- colorRampPalette(brewer.pal(8, "Reds"))(25)
+
+# plot
+p_pheindex_heatmap <- pheatmap(mat_pheno,
+                       display_numbers = TRUE,
+                       symm = TRUE,
+                       col = coul,
+                       xlab = "PheIndex criteria (#)",
+                       ylab = "PheIndex criteria (#)")
+
+p_pheindex_heatmap <- ggplotify::as.ggplot(p_pheindex_heatmap) 
+
+# # CX: Preterm
+# df_pheindex[df_pheindex$ConceptID == "C2909946", ] # Preterm newborn, unspecified weeks of gestation
+# df_pheindex[df_pheindex$ConceptID == "C0029713", ] # Other preterm infants
+# df_pheindex[df_pheindex$ConceptID == "C3264533", ] # Extreme immaturity of newborn
+
 ### OTHER SUB-ANALYSIS ---------------------------------------------------------
 ## For HPO OR plot, find the terms that make up geniturourinary system abnormality
 # define descendants
@@ -1007,5 +1318,26 @@ pdf(file = "Fig3.pdf",
     height = 8)
 
 Fig3
+
+dev.off()
+
+## Figure S1: Kaplan-Meier plot
+pdf(file = "FigS1.pdf",
+    width = 8,
+    height = 6)
+
+p_surv
+
+dev.off()
+
+## Figure S2: PheIndex plots
+FigS2 <- cowplot::plot_grid(p_pheindex_violin, p_pheindex_bar, p_pheindex_heatmap,
+                          nrow = 1, labels = "AUTO", align = "hv")
+
+pdf(file = "FigS2.pdf",
+    width = 12,
+    height = 4)
+
+FigS2
 
 dev.off()
