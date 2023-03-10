@@ -30,6 +30,7 @@ librarian::shelf(tidyverse,
                  igraph,
                  bnlearn,
                  ggplotify,
+                 pheatmap,
                  survminer,
                  RColorBrewer)
 
@@ -982,6 +983,64 @@ df_inpatient <- df_nstays %>%
   filter(ORD_MODE_DESC == "INPATIENT" & n > 1) %>%
   mutate(hasInpatient = TRUE)
 
+### UTILIZATION ANALYSIS -------------------------------------------------------
+## data: list of patient specialist encounters from Alina Ivaniuk, 2023-03-07
+# TODO: update input data. current table omits rows as max file length has been reached.
+df_util <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/encounter-info-epilepsy.csv")
+
+# subset by case-control cohort
+df_util <- df_util %>%
+  filter(PatientID %in% df_match1$PatientId)
+
+# get date of birth from df_lookup and calculate age at encounter
+df_util <- df_util %>%
+  rename(PatientId = PatientID) %>%
+  left_join(df_lookup[ ,c("PatientId", "DateOfBirth")], by = "PatientId") %>%
+  mutate(DateOfBirth = lubridate::mdy(DateOfBirth)) %>%
+  mutate(ENC_DT = lubridate::as_date(ENC_DT)) %>%
+  mutate(AgeAtEncounter = difftime(ENC_DT, DateOfBirth, units = "days")) %>%
+  mutate(MonthsEncounter = as.numeric(round(AgeAtEncounter/30, 0))) %>%
+  mutate(YearsEncounter = as.numeric(AgeAtEncounter/365.2425))
+
+# get group label
+map_match <- df_match1 %>%
+  distinct(PatientId, group)
+
+df_util <- df_util %>%
+  left_join(map_match)
+
+# get count of unique specialty descriptions per patient
+# TODO: use number of unique specialties seen for PheIndex score instead of current assumption
+stats_util <- df_util %>%
+  group_by(PatientId) %>%
+  distinct(PatientId, group, SPECIALTY_DESC) %>%
+  count()
+
+# idea: we could look at ENC_TYPE_DESC between groups and during 2019-2022 vs before. Telehealth during COVID?
+
+### ER VISITS -----------------------------------------------------------------
+## data: ER admissions for all patients
+df_er <- readxl::read_excel("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/ER_Visits.xlsx")
+
+# get group label
+df_er <- df_er %>%
+  rename(PatientId = PatientID) %>%
+  left_join(map_match) %>%
+  na.omit
+
+# count admissions for each patient
+p_er <- df_er %>%
+  add_count(PatientId, AdmissionType) %>%
+  summarize(pval = t.test(n ~ group)$p.value)
+
+stats_er <- df_er %>%
+  group_by(group) %>%
+  add_count(PatientId, AdmissionType) %>%
+  summarize(mean = mean(n), median = median(n),
+            sd = sd(n),
+            min = min(n), max = max(n),
+            n = n_distinct(PatientId))
+
 ### PHEINDEX SCORING -----------------------------------------------------------
 ## ref: https://www.medrxiv.org/content/10.1101/2023.01.27.23285056v1.full.pdf
 ## data: list of PatientIds, ContactAges, group membership and concepts
@@ -1359,3 +1418,65 @@ pdf(file = "FigS2.pdf",
 FigS2
 
 dev.off()
+
+### CHART REVIEW --------------------------------------------------------------
+# pull patient MRNs for manual chart review
+df_match1 %>%
+  filter(term == "HP:0000083") %>% # renal insufficiency
+  distinct(PatientId) %>%
+  left_join(mrn_map) %>%
+  write_csv("/Users/cbosselmann/Desktop/hp_0000083.csv")
+
+df_match1 %>%
+  filter(term == "HP:0004383") %>% # hypoplastic left heart syndrome
+  distinct(PatientId) %>%
+  left_join(mrn_map) %>%
+  write_csv("/Users/cbosselmann/Desktop/hp_0004383.csv")
+
+df_match1 %>%
+  filter(term == "HP:0000028") %>% # cryptorchidism
+  distinct(PatientId) %>%
+  left_join(mrn_map) %>%
+  write_csv("/Users/cbosselmann/Desktop/hp_0000028.csv")
+
+df_match1 %>%
+  filter(term == "HP:0000047") %>% # hypospadia
+  distinct(PatientId) %>%
+  left_join(mrn_map) %>%
+  write_csv("/Users/cbosselmann/Desktop/hp_0000047.csv")
+
+df_match1 %>%
+  filter(term == "HP:0000939") %>% # osteoporosis
+  distinct(PatientId) %>%
+  left_join(mrn_map) %>%
+  write_csv("/Users/cbosselmann/Desktop/hp_0000939.csv")
+
+### MISC ----------------------------------------------------------------------
+## get the number of SCN1A patients in the cohort and their mean follow-up
+tmp_scn1a <- df_scn1a %>%
+  rename(MedicalRecordNumber = PAT_MRN_ID) %>%
+  left_join(mrn_map)
+
+tmp_scn1a_fu <- p1$data %>%
+  filter(PatientId %in% tmp_scn1a$PatientId) %>%
+  mutate(dur = upper-lower) %>%
+  summarize(mean = mean(dur), median = median(dur),
+            sd = sd(dur), min = min(dur), max = max(dur),
+            iqr = IQR(dur))
+
+## DL analysis 08/03/2023
+# wants to see group differences between non-mapped terms in a list provided by Mark
+tmp_xl <- readxl::read_excel("~/Desktop/EpilepsyHPO Mappings.xlsx", sheet = 2)
+tmp_xl$ConceptID
+
+# find non-hpo analysis output for these concepts
+df_conceptmatch %>%
+  filter(ConceptID %in% tmp_xl$ConceptID) %>%
+  left_join(tmp_xl[ ,c("ConceptID", "ConceptDescription")]) %>%
+  write_csv("~/Desktop/nonhpo_2023-03-08.csv")
+
+
+
+
+
+
