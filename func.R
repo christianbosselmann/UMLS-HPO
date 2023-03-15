@@ -525,12 +525,13 @@ longitudinalPlot <- function(df_genes, df_match1,
         filter(odds > 1)
     }
     
-    # get n best p-values for each bin for longitudinal plot
-    df_group <- df_group %>%
-      ungroup() %>%
-      select(term, description, pvalue, odds) 
-    # %>% 
-    #   slice_min(order_by = pvalue, n = 8, with_ties = FALSE) # non-trivial to choose
+    # # commented out to keep all raw data 
+    # # get n best p-values for each bin for longitudinal plot
+    # df_group <- df_group %>%
+    #   ungroup() %>%
+    #   select(term, description, pvalue, odds) 
+    # # %>% 
+    # #   slice_min(order_by = pvalue, n = 8, with_ties = FALSE) # non-trivial to choose
     
     if(filter){
       # filter: by ancestors

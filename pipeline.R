@@ -206,6 +206,8 @@ df_match8 <- df_match8 %>%
 ### SUMMARY STATS -------------------------------------------------------------
 ## demographic table
 tbl_person <- df_person %>%  
+  # can subset to matched cohort
+  filter(PatientId %in% df_match1$PatientId) %>%
   # recode UMLS to sex
   mutate(Gender = recode(Gender, 
                          "C0086582" = "Male",
@@ -225,6 +227,8 @@ tbl_person <- df_person %>%
 
 ## p1: flag plot of encounters over age
 p1 <- df %>%
+  # optional: subset to matched cohort
+  filter(PatientId %in% df_match1$PatientId) %>%
   summarise(lower = min(ContactAge), 
             upper = max(ContactAge), 
             p = mean(ContactAge)) %>%
@@ -242,6 +246,8 @@ p1 <- df %>%
 
 # stats of length of follow-up
 stats_followup <- p1$data %>%
+  # optional: subset to matched cohort
+  filter(PatientId %in% df_match1$PatientId) %>%
   mutate(dur = upper-lower) %>%
   summarize(mean = mean(dur), median = median(dur),
             sd = sd(dur), min = min(dur), max = max(dur),
@@ -250,7 +256,7 @@ stats_followup <- p1$data %>%
 # add mean age at follow-up back to plot
 p1 <- p1 + 
   geom_vline(xintercept = stats_followup$mean, linetype = "dashed") +
-  geom_text(aes(x = stats_followup$mean, label = "\nMean: 6·5 years", y = 400),
+  geom_text(aes(x = stats_followup$mean, label = "\nMean: 8·18 years", y = 100),
             colour = "black", angle = 90, size = 4)
 
 ## p2: flat violin (raincloud) plot of age at encounter
@@ -397,9 +403,13 @@ enrich1$plot$data$expcat_text <- NA
 enrich1$plot$data[enrich1$plot$data$description == "Abnormality of the genitourinary system", ]$expcat_text <- "Abnormality of the genitourinary system"
 enrich1$plot$data[enrich1$plot$data$description == "Intracranial hemorrhage", ]$expcat_text <- "Intracranial hemorrhage"
 enrich1$plot$data[enrich1$plot$data$description == "Behavioral abnormality", ]$expcat_text <- "Behavioral abnormality"
+enrich1$plot$data[enrich1$plot$data$description == "Simple febrile seizure", ]$expcat_text <- "Simple febrile seizure"
+enrich1$plot$data[enrich1$plot$data$description == "Hyperactivity", ]$expcat_text <- "Hyperactivity"
 
 enrich1$plot <- enrich1$plot +
-  coord_fixed(xlim = c(0, .2), ylim = c(0, .2)) +
+  coord_fixed(xlim = c(0, .095), ylim = c(0, .095)) +
+  scale_x_continuous( breaks=pretty_breaks()) +
+  scale_y_continuous( breaks=pretty_breaks()) +
   ggtitle("Genetic vs. Non-Genetic") +
   theme(plot.title = element_text(hjust = 0.5, size = 18))
 
@@ -410,12 +420,12 @@ enrich8 <- df_match8 %>%
 # manual labels
 enrich8$plot$data$expcat_text <- NA
 enrich8$plot$data[enrich8$plot$data$description == "Arrhythmia", ]$expcat_text <- "Arrhythmia"
-enrich8$plot$data[enrich8$plot$data$description == "Abnormality of the nervous system", ]$expcat_text <- "Abnormality of the nervous system"
+enrich8$plot$data[enrich8$plot$data$description == "Abnormality of movement", ]$expcat_text <- "Abnormality of movement"
 enrich8$plot$data[enrich8$plot$data$description == "Infection-related seizure", ]$expcat_text <- "Infection-related seizure"
 enrich8$plot$data[enrich8$plot$data$description == "Abnormality of the immune system", ]$expcat_text <- "Abnormality of the immune system"
 
 enrich8$plot <- enrich8$plot +
-  coord_fixed(xlim = c(0, .5), ylim = c(0, .5)) +
+  coord_fixed(xlim = c(0, .3), ylim = c(0, .3)) +
   ggtitle("SCN1A vs. CDKL5") +
   theme(plot.title = element_text(hjust = 0.5, size = 18))
 
@@ -662,6 +672,42 @@ p_asm <- df_heatmap %>%
                        na.value = "#F5F5F5",
                        limits = c(-2, 2),
                        oob = scales::oob_squish_any)
+
+## subanalysis: do likely genetic patients receive more ASMs?
+df_med_sub <- df_med %>%
+  filter(PatientId %in% df_match1$PatientId) %>%
+  left_join(df_match1[ ,c("PatientId", "group")]) %>%
+  distinct(PatientId, AgePrescription, MED_NAME, group)
+
+stats_med_sub <- df_med_sub %>%
+  group_by(PatientId, group) %>%
+  summarize(asm = n_distinct(MED_NAME)) %>%
+  group_by(group) %>%
+  summarize(mean = mean(asm), sd = sd(asm), min = min(asm), max = max(asm))
+
+p_med_sub <- df_med_sub %>%
+  group_by(PatientId, group) %>%
+  summarize(asm = n_distinct(MED_NAME)) %>%
+  ungroup() %>% 
+  summarize(pval = t.test(asm ~ group)$p.value)
+
+## subanalysis: Do likely genetic patients receive more rescue medication?
+df_med_resc <- df_med_sub %>%
+  mutate(isRescue = if_else(MED_NAME %in% c("lorazepam", "clonazepam", "clobazam", "diazepam", "midazolam"), T, F))
+  
+stats_med_resc <- df_med_resc %>%
+  filter(isRescue) %>%
+  group_by(PatientId, group) %>%
+  summarize(asm = n_distinct(AgePrescription)) %>%
+  group_by(group) %>%
+  summarize(mean = mean(asm), sd = sd(asm), min = min(asm), max = max(asm))
+
+p_med_resc <- df_med_resc %>%
+  filter(isRescue) %>%
+  group_by(PatientId, group) %>%
+  summarize(asm = n_distinct(AgePrescription)) %>%
+  ungroup() %>% 
+  summarize(pval = t.test(asm ~ group)$p.value)
 
 ### NON-HPO CONCEPT ANALYSIS ---------------------------------------------------
 # find out how many UMLS concepts do not match to HPO terms
@@ -1189,8 +1235,10 @@ df_pheindex[df_pheindex$group == 0, ]$label <- "Non-genetic"
 df_pheindex[df_pheindex$group == 1, ]$label <- "Likely genetic"
 
 ## visualization: PhenIndex by group
-p_pheindex_violin <-df_pheindex %>%
-  mutate(label = as.factor(label)) %>%
+df_pheindex <- df_pheindex %>%
+  mutate(label = factor(label, levels = c("Non-genetic", "Likely genetic")))
+
+p_pheindex_violin <- df_pheindex %>%
   ggplot(aes(y = score, x = label, fill = label)) +
   geom_flat_violin(position = position_nudge(x = .1, y = 0), alpha = .8) +
   guides(fill = "none", color = "none") +
@@ -1365,13 +1413,13 @@ Fig2 <- cowplot::plot_grid(pqq,
                            enrich1$plot + 
                              ggtitle("") + 
                              theme_set(theme_classic()) +
-                             coord_cartesian(xlim = c(0, 0.15), ylim = c(0, 0.15)) +
+                             # coord_cartesian(xlim = c(0, 0.15), ylim = c(0, 0.15)) +
                              ylab("Frequency, likely genetic patient encounters") +
                              xlab("Frequency, non-genetic patients encounters"),
                            enrich8$plot + 
                              ggtitle("") + 
                              theme_set(theme_classic()) +
-                             coord_cartesian(xlim = c(0, 0.5), ylim = c(0, 0.5)) +
+                             # coord_cartesian(xlim = c(0, 0.5), ylim = c(0, 0.5)) +
                              ylab("Frequency, SCN1A patient encounters") +
                              xlab("Frequency, CDKL5 patient encounters"),
                            nrow = 2, labels = "AUTO", align = "none")
@@ -1400,8 +1448,9 @@ dev.off()
 
 ## Figure S1: Kaplan-Meier plot
 pdf(file = "FigS1.pdf",
-    width = 8,
-    height = 6)
+    width = 12,
+    height = 8,
+    onefile = FALSE)
 
 p_surv
 
@@ -1464,6 +1513,66 @@ tmp_scn1a_fu <- p1$data %>%
             sd = sd(dur), min = min(dur), max = max(dur),
             iqr = IQR(dur))
 
+# get number of individual gene patients in cohort
+df_match1 %>%
+  distinct(PatientId) %>%
+  left_join(mrn_map) %>%
+  # filter(PatientId %in% df_scn1a$PatientID) %>%
+  # filter(MedicalRecordNumber %in% df_cdkl5$MRN) %>%
+  filter(MedicalRecordNumber %in% df_scn1a$PAT_MRN_ID) %>%
+  count()
+
+# follow-up stats for matched cohort
+stats_followup2 <- p1$data %>%
+  filter(PatientId %in% df_match1$PatientId) %>%
+  mutate(dur = upper-lower) %>%
+  summarize(sum(dur))
+
+# average number of encounters per patient
+df_match1 %>%
+  distinct(PatientId, ContactAge) %>%
+  group_by(PatientId) %>%
+  count() %>%
+  ungroup() %>%
+  summarize(mean = mean(n), sd = sd(n), min = min(n), max = max(n))
+
+# average UMLS concepts per patient
+df_match1 %>%
+  distinct(PatientId, ConceptID) %>%
+  group_by(PatientId) %>%
+  count() %>%
+  ungroup() %>%
+  summarize(mean = mean(n), sd = sd(n), min = min(n), max = max(n))
+
+# average HPO terms per patient
+df_match1 %>%
+  distinct(PatientId, term) %>%
+  group_by(PatientId) %>%
+  count() %>%
+  ungroup() %>%
+  summarize(mean = mean(n), sd = sd(n), min = min(n), max = max(n))
+
+# add OR 95% CI for text
+# usage: getCI(enrich1$data) %>% filter(description %like% "TERM")
+getCI <- function(input){
+  concept_odds <- data.frame(OR = 1:nrow(input),
+                             CI1 = 1:nrow(input),
+                             CI2 = 1:nrow(input))
+  for(i in 1:nrow(input)){
+    row <- input[i, ] %>%
+      ungroup() %>%
+      select(Y, Y_out, N, N_out) %>%
+      data.matrix()
+    mat <- matrix(data = row, nrow=2)
+    fish <- fisher.test(mat)
+    concept_odds$OR[i] <- fish$estimate
+    concept_odds$CI1[i] <- fish$conf.int[[1]] # lower bound
+    concept_odds$CI2[i] <- fish$conf.int[[2]] # upper bound
+  }
+  res <- cbind(input, concept_odds)
+  return(res)
+}
+
 ## DL analysis 08/03/2023
 # wants to see group differences between non-mapped terms in a list provided by Mark
 tmp_xl <- readxl::read_excel("~/Desktop/EpilepsyHPO Mappings.xlsx", sheet = 2)
@@ -1475,8 +1584,53 @@ df_conceptmatch %>%
   left_join(tmp_xl[ ,c("ConceptID", "ConceptDescription")]) %>%
   write_csv("~/Desktop/nonhpo_2023-03-08.csv")
 
+## Flowchart of study population
+librarian::shelf(DiagrammeR,
+                 DiagrammeRsvg,
+                 rsvg)
+options(OutDec = ".")
+p_flowchart <- grViz("digraph flowchart {
+      node [fontname = Helvetica, shape = rectangle]        
+      tab1 [label = '@@1']
+      tab2 [label = '@@2']
+      tab3 [label = '@@3']
+      tab4 [label = '@@4']
+      tab5 [label = '@@5']
+      tab6 [label = '@@6']
+      m1 [label = '@@7']
+      m2 [label = '@@8']
+      
+      node [shape=none, width=0, height=0, label='']
+      p1;
+      {rank=same; p1,m1}
+      {rank=same; m2,p1}
 
+      # edge definitions with the node IDs
+      tab1 -> tab2;
+      tab2 -> tab3;
+      tab3 -> tab4;
+      tab4 -> tab5;
+      p1 -> tab6;
+      p1 -> m1;
+      
+      edge [dir=none]
+      tab5 -> p1;
+      
+      edge [dir=back]
+      m2 -> p1
+      }
 
+      [1]: 'Any ICD-10 G40- for Epilepsy \\n n = 0000'
+      [2]: 'Any procedural code (CPT) for EEG \\n n = 0000'
+      [3]: 'Age 0-5 years at diagnosis \\n n = 0000'
+      [4]: 'Participants eligible for stratification \\n n = 1671'
+      [5]: 'Likely genetic patients n = 274 \\n Not likely genetic patients n = 1397'
+      [6]: 'Study cohort \\n n = 503'
+      [7]: 'Missing data \\n n = 25'
+      [8]: 'Total lost to matching \\n n = 1168'
+      ")
 
-
-
+p_flowchart %>%
+  export_svg %>% 
+  charToRaw %>% 
+  rsvg_pdf("studyflowchart.pdf")
