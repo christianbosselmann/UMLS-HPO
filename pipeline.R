@@ -974,6 +974,15 @@ df_death1 <- df_match1 %>%
 df_death1 <- df_death1 %>%
   mutate(ContactAge = ContactAge*365)
 
+# filter by individuals with at least two years of follow-up available
+df_hasfollowup <- p1$data %>%
+  mutate(dur = upper-lower) %>%
+  filter(dur > 1) %>%
+  distinct(PatientId)
+
+df_death1 <- df_death1 %>%
+  filter(PatientId %in% df_hasfollowup$PatientId)
+
 # if a patient is deceased, set their age at last contact for the survival analysis
 df_death1 <- df_death1 %>%
   mutate(isDead = if_else(!is.na(AgeAtDeath), 1, 0))
@@ -1007,7 +1016,7 @@ p_surv <- survminer::ggsurvplot(km_fit, data = df_surv,
                                 pval = TRUE,
                                 risk.table = "nrisk_cumcensor",
                                 pval.coord = c(2, 0.55),
-                                ggtheme = theme_classic(),
+                                ggtheme = theme(text=element_text(size=10)),
                                 xlab = c("Age (years)"),
                                 xlim = c(0, 25), ylim = c(0.50, 1.0),
                                 legend = c(0.8, 0.15),
@@ -1087,6 +1096,11 @@ stats_er <- df_er %>%
             min = min(n), max = max(n),
             n = n_distinct(PatientId))
 
+df_er <- df_er %>%
+  group_by(group) %>%
+  add_count(PatientId, AdmissionType) %>%
+  distinct(PatientId, n)
+
 ### PHEINDEX SCORING -----------------------------------------------------------
 ## ref: https://www.medrxiv.org/content/10.1101/2023.01.27.23285056v1.full.pdf
 ## data: list of PatientIds, ContactAges, group membership and concepts
@@ -1114,17 +1128,14 @@ ls_pheindex[[3]]  <- df_pheindex %>%
   mutate(score = 3)
 
 ## C4: Multiple emergency room (ER) visits.
-# NA
+ls_pheindex[[4]] <- df_er %>%
+  filter(n >= 5) %>%
+  mutate(score = 1) %>%
+  distinct(PatientId, score)
 
 ## C5: Feeding support (Gastrostomy tube).
 ls_pheindex[[5]] <- rbind(
-  # df_pheindex[df_pheindex$ConceptID == "C0699815", ], # Feeding difficulties and mismanagement
-  # df_pheindex[df_pheindex$ConceptID == "C0159023", ], # Feeding problems in newborn
-  # df_pheindex[df_pheindex$ConceptID == "C5539211", ], # Other feeding difficulties
   df_pheindex[df_pheindex$ConceptID == "C0260683", ], # Gastrostomy status
-  # df_pheindex[df_pheindex$ConceptID == "C0270273", ], # Slow feeding in newborn
-  # df_pheindex[df_pheindex$ConceptID == "C5539209", ], # Feeding difficulties, unspecified
-  # df_pheindex[df_pheindex$ConceptID == "C0478153", ], # Other symptoms and signs concerning food and fluid intake
   df_pheindex[df_pheindex$ConceptID == "C0260761", ] # Encounter for attention to gastrostomy
 ) %>%
   distinct(PatientId, score) %>%
@@ -1132,14 +1143,8 @@ ls_pheindex[[5]] <- rbind(
 
 ## C6: Respiratory support (tracheostomy and mechanical ventilation outside of surgery).
 ls_pheindex[[6]] <- rbind(
-  # df_pheindex[df_pheindex$ConceptID == "C0348712", ], # Other disorders of lung
-  # df_pheindex[df_pheindex$ConceptID == "C0431510", ], # Other anomalies of larynx, trachea, and bronchus
-  # df_pheindex[df_pheindex$ConceptID == "C0029601", ], # Other respiratory anomalies
   df_pheindex[df_pheindex$ConceptID == "C0260682", ], # Tracheostomy status
-  # df_pheindex[df_pheindex$ConceptID == "C0748355", ], # Acute respiratory distress
-  # df_pheindex[df_pheindex$ConceptID == "C0456017", ], # Chronic respiratory disease in perinatal period
   df_pheindex[df_pheindex$ConceptID == "C2911575", ] # Dependence on respirator [ventilator] status
-  # df_pheindex[df_pheindex$ConceptID == "C2977073", ] # Respiratory failure, unspecified
 ) %>%
   distinct(PatientId, score) %>%
   mutate(score = 2)
@@ -1309,10 +1314,40 @@ p_pheindex_heatmap <- pheatmap(mat_pheno,
 
 p_pheindex_heatmap <- ggplotify::as.ggplot(p_pheindex_heatmap) 
 
-# # CX: Preterm
-# df_pheindex[df_pheindex$ConceptID == "C2909946", ] # Preterm newborn, unspecified weeks of gestation
-# df_pheindex[df_pheindex$ConceptID == "C0029713", ] # Other preterm infants
-# df_pheindex[df_pheindex$ConceptID == "C3264533", ] # Extreme immaturity of newborn
+## table of PheIndex criteria for plot
+library(gtable)
+library(grid)
+library(gridExtra)
+p_pheindex_table <- tibble(Criterion = 1:13,
+                           Description = c("Prolonged stay in the NICU",
+                                           "Prolonged or multiple hospitalizations",
+                                           "Visits or consults with multiple specialists",
+                                           "Multiple emergency room visits",
+                                           "Feeding support",
+                                           "Respiratory support",
+                                           "Imaging",
+                                           "Genetic diagnostic tests",
+                                           "Metabolic diagnostic tests",
+                                           "In-hospital death",
+                                           "Developmental delay",
+                                           "Diagnosis corresponding to metabolic diseases",
+                                           "Heart surgeries"))
+
+p_pheindex_grob <- gridExtra::tableGrob(p_pheindex_table, 
+                                        rows = NULL,
+                                        theme = ttheme_minimal(rowhead=list(fg_params=list(hjust=0, x=0)),
+                                                               core=list(padding=unit(c(12, 4), "mm"),
+                                                                         fg_params=list(hjust=0, x=0.1))))
+
+p_pheindex_grob <- gtable_add_grob(p_pheindex_grob,
+                     grobs = rectGrob(gp = gpar(fill = NA, lwd = 2)),
+                     t = 2, b = nrow(p_pheindex_grob), l = 1, r = ncol(p_pheindex_grob))
+
+p_pheindex_grob <- gtable_add_grob(p_pheindex_grob,
+                     grobs = rectGrob(gp = gpar(fill = NA, lwd = 2)),
+                     t = 1, l = 1, r = ncol(p_pheindex_grob))
+
+p_pheindex_table <- ggplotify::as.ggplot(p_pheindex_grob)
 
 ### OTHER SUB-ANALYSIS ---------------------------------------------------------
 ## For HPO OR plot, find the terms that make up geniturourinary system abnormality
@@ -1448,8 +1483,8 @@ dev.off()
 
 ## Figure S1: Kaplan-Meier plot
 pdf(file = "FigS1.pdf",
-    width = 12,
-    height = 8,
+    width = 8,
+    height = 6,
     onefile = FALSE)
 
 p_surv
@@ -1457,12 +1492,13 @@ p_surv
 dev.off()
 
 ## Figure S2: PheIndex plots
-FigS2 <- cowplot::plot_grid(p_pheindex_violin, p_pheindex_bar, p_pheindex_heatmap,
-                            nrow = 1, labels = "AUTO", align = "hv")
+FigS2 <- cowplot::plot_grid(p_pheindex_violin, p_pheindex_bar, 
+                            p_pheindex_heatmap, p_pheindex_table,
+                            nrow = 2, labels = "AUTO", align = "hv")
 
 pdf(file = "FigS2.pdf",
     width = 12,
-    height = 4)
+    height = 12)
 
 FigS2
 
@@ -1534,7 +1570,7 @@ df_match1 %>%
   group_by(PatientId) %>%
   count() %>%
   ungroup() %>%
-  summarize(mean = mean(n), sd = sd(n), min = min(n), max = max(n))
+  summarize(mean = mean(n), median = median(n), sd = sd(n), min = min(n), max = max(n))
 
 # average UMLS concepts per patient
 df_match1 %>%
