@@ -253,6 +253,22 @@ stats_followup <- p1$data %>%
             sd = sd(dur), min = min(dur), max = max(dur),
             iqr = IQR(dur))
 
+# can also compare start of follow-up between groups
+p1$data %>%
+  filter(PatientId %in% df_match1$PatientId) %>%
+  left_join(df_match1[ ,c("PatientId", "group")]) %>%
+  mutate(dur = upper-lower) %>%
+  summarize(pval = t.test(lower ~ group)$p.value)
+
+p1$data %>%
+  filter(PatientId %in% df_match1$PatientId) %>%
+  left_join(df_match1[ ,c("PatientId", "group")]) %>%
+  mutate(dur = upper-lower) %>%
+  group_by(group) %>%
+  summarize(mean = mean(lower), median = median(lower),
+            sd = sd(lower), min = min(lower), max = max(lower),
+            iqr = IQR(lower))
+
 # add mean age at follow-up back to plot
 p1 <- p1 + 
   geom_vline(xintercept = stats_followup$mean, linetype = "dashed") +
@@ -694,7 +710,7 @@ p_med_sub <- df_med_sub %>%
 ## subanalysis: Do likely genetic patients receive more rescue medication?
 df_med_resc <- df_med_sub %>%
   mutate(isRescue = if_else(MED_NAME %in% c("lorazepam", "clonazepam", "clobazam", "diazepam", "midazolam"), T, F))
-  
+
 stats_med_resc <- df_med_resc %>%
   filter(isRescue) %>%
   group_by(PatientId, group) %>%
@@ -787,8 +803,8 @@ pqq <- gg_qqplot(df_conceptmatch$P_i) +
            size = 5) +
   coord_equal() +
   theme(aspect.ratio = 1) +
-  geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
-  geom_hline(yintercept = -log10(0.05), linetype = "dashed")
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
+  geom_hline(yintercept = -log10(0.05/length(unique(df_match1$ConceptID))), linetype = "dashed", col = "red") 
 
 # keep significant associations
 df_conceptmatch <- df_conceptmatch %>%
@@ -1037,6 +1053,25 @@ df_nstays <- df_stays %>%
 df_inpatient <- df_nstays %>%
   filter(ORD_MODE_DESC == "INPATIENT" & n > 1) %>%
   mutate(hasInpatient = TRUE)
+
+# stats: are likely genetic patients more likely to be seen inpatient?
+map_match <- df_match1 %>%
+  distinct(PatientId, group)
+
+p_inpatient <- df_inpatient %>%
+  left_join(map_match) %>%
+  na.omit %>%
+  ungroup() %>%
+  summarize(pval = t.test(n ~ group)$p.value)
+
+stats_inpatient <- df_inpatient %>%
+  left_join(map_match) %>%
+  na.omit %>%
+  group_by(group) %>%
+  summarize(mean = mean(n), median = median(n),
+            sd = sd(n),
+            min = min(n), max = max(n),
+            n = n_distinct(PatientId))
 
 ### UTILIZATION ANALYSIS -------------------------------------------------------
 ## data: list of patient specialist encounters from Alina Ivaniuk, 2023-03-07
@@ -1340,12 +1375,12 @@ p_pheindex_grob <- gridExtra::tableGrob(p_pheindex_table,
                                                                          fg_params=list(hjust=0, x=0.1))))
 
 p_pheindex_grob <- gtable_add_grob(p_pheindex_grob,
-                     grobs = rectGrob(gp = gpar(fill = NA, lwd = 2)),
-                     t = 2, b = nrow(p_pheindex_grob), l = 1, r = ncol(p_pheindex_grob))
+                                   grobs = rectGrob(gp = gpar(fill = NA, lwd = 2)),
+                                   t = 2, b = nrow(p_pheindex_grob), l = 1, r = ncol(p_pheindex_grob))
 
 p_pheindex_grob <- gtable_add_grob(p_pheindex_grob,
-                     grobs = rectGrob(gp = gpar(fill = NA, lwd = 2)),
-                     t = 1, l = 1, r = ncol(p_pheindex_grob))
+                                   grobs = rectGrob(gp = gpar(fill = NA, lwd = 2)),
+                                   t = 1, l = 1, r = ncol(p_pheindex_grob))
 
 p_pheindex_table <- ggplotify::as.ggplot(p_pheindex_grob)
 
@@ -1451,12 +1486,12 @@ Fig2 <- cowplot::plot_grid(pqq,
                              # coord_cartesian(xlim = c(0, 0.15), ylim = c(0, 0.15)) +
                              ylab("Frequency, likely genetic patient encounters") +
                              xlab("Frequency, non-genetic patients encounters"),
-                           enrich8$plot + 
-                             ggtitle("") + 
-                             theme_set(theme_classic()) +
-                             # coord_cartesian(xlim = c(0, 0.5), ylim = c(0, 0.5)) +
-                             ylab("Frequency, SCN1A patient encounters") +
-                             xlab("Frequency, CDKL5 patient encounters"),
+                           # enrich8$plot + 
+                           #   ggtitle("") + 
+                           #   theme_set(theme_classic()) +
+                           #   # coord_cartesian(xlim = c(0, 0.5), ylim = c(0, 0.5)) +
+                           #   ylab("Frequency, SCN1A patient encounters") +
+                           #   xlab("Frequency, CDKL5 patient encounters"),
                            nrow = 2, labels = "AUTO", align = "none")
 
 pdf(file = "Fig2.pdf",
@@ -1670,3 +1705,30 @@ p_flowchart %>%
   export_svg %>% 
   charToRaw %>% 
   rsvg_pdf("studyflowchart.pdf")
+
+## ICD-10 statistics for cases and controls
+# define list of ICD codes of interest (i.e. epilepsy-related) as patterns
+tbl_icd <- df_raw %>%
+  filter(PatientId %in% df_match1$PatientId) %>%
+  distinct(PatientId, ICD10Code) %>%
+  filter(ICD10Code %like% "R56" | # febrile seizures and other convulsions
+           ICD10Code %like% "G40" | # epilepsy
+           ICD10Code %like% "F84") %>% # pervasive and specific developmental disorders
+  left_join(df_match1[ ,c("PatientId", "group")], by = "PatientId") %>%
+  distinct(PatientId, ICD10Code, group) %>%
+  group_by(ICD10Code, group) %>%
+  summarize(n = n_distinct(PatientId)) %>%
+  arrange(desc(n)) %>%
+  pivot_wider(names_from = "group", values_from = "n") %>%
+  replace(is.na(.), 0) %>%
+  arrange(desc(`TRUE`), desc(`FALSE`))
+
+# get map
+icd_map <- read_table("icd10cm.txt", col_names = FALSE) %>%
+  rename(ICD10Code = X1, description = X2)
+
+tbl_icd <- tbl_icd %>%
+  mutate(ICD10Code = gsub("\\.", "", ICD10Code)) %>%
+  left_join(icd_map) 
+
+

@@ -1,0 +1,58 @@
+ICD10Code,TRUE,FALSE,description
+G40419,51,9,"Other generalized epilepsy and epileptic syndromes, intractable, without status epilept"
+G40319,37,20,"Generalized idiopathic epilepsy and epileptic syndromes, intractable, without status ep"
+G40824,31,12,"Epileptic spasms, intractable, without status epilepticus"
+G40119,30,29,Localization-related (focal) (partial) symptomatic epilepsy and epileptic syndromes wit
+G40309,30,22,"Generalized idiopathic epilepsy and epileptic syndromes, not intractable, without statu"
+G40802,24,22,"Other epilepsy, not intractable, without status epilepticus"
+G40909,21,16,"Epilepsy, unspecified, not intractable, without status epilepticus"
+G40911,21,3,"Epilepsy, unspecified, intractable, with status epilepticus"
+G40109,20,17,Localization-related (focal) (partial) symptomatic epilepsy and epileptic syndromes wit
+R569,19,16,Unspecified convulsions
+G40209,18,10,Localization-related (focal) (partial) symptomatic epilepsy and epileptic syndromes wit
+G40901,18,10,"Epilepsy, unspecified, not intractable, with status epilepticus"
+R5600,17,17,Simple febrile convulsions
+G40822,15,6,"Epileptic spasms, not intractable, without status epilepticus"
+G40814,14,1,"Lennox-Gastaut syndrome, intractable, without status epilepticus"
+G40211,11,3,Localization-related (focal) (partial) symptomatic epilepsy and epileptic syndromes wit
+G40409,11,3,"Other generalized epilepsy and epileptic syndromes, not intractable, without status epi"
+F84,10,7,NA
+G40919,9,11,"Epilepsy, unspecified, intractable, without status epilepticus"
+R5601,9,9,Complex febrile convulsions
+G40301,8,3,"Generalized idiopathic epilepsy and epileptic syndromes, not intractable, with status e"
+G40401,8,1,"Other generalized epilepsy and epileptic syndromes, not intractable, with status epilep"
+G4042,8,0,Cyclin-Dependent Kinase-Like 5 Deficiency Disorder
+G40834,8,0,"Dravet syndrome, intractable, without status epilepticus"
+G40,7,6,NA
+G40A19,7,2,"Absence epileptic syndrome, intractable, without status epilepticus"
+G4083,7,0,NA
+F840,6,6,Autistic disorder
+G40201,6,6,Localization-related (focal) (partial) symptomatic epilepsy and epileptic syndromes wit
+G40219,6,6,Localization-related (focal) (partial) symptomatic epilepsy and epileptic syndromes wit
+R561,6,4,Post traumatic seizures
+G40509,6,3,"Epileptic seizures related to external causes, not intractable, without status epilepti"
+G40801,6,3,"Other epilepsy, not intractable, with status epilepticus"
+G40311,6,1,"Generalized idiopathic epilepsy and epileptic syndromes, intractable, with status epile"
+G4089,5,1,Other seizures
+G40009,4,11,Localization-related (focal) (partial) idiopathic epilepsy and epileptic syndromes with
+G40A09,4,9,"Absence epileptic syndrome, not intractable, without status epilepticus"
+G40001,4,3,Localization-related (focal) (partial) idiopathic epilepsy and epileptic syndromes with
+F848,4,2,Other pervasive developmental disorders
+G40011,4,2,Localization-related (focal) (partial) idiopathic epilepsy and epileptic syndromes with
+G40821,4,2,"Epileptic spasms, not intractable, with status epilepticus"
+G40823,4,1,"Epileptic spasms, intractable, with status epilepticus"
+F842,4,0,Rett's syndrome
+G40803,3,4,"Other epilepsy, intractable, with status epilepticus"
+G40411,3,0,"Other generalized epilepsy and epileptic syndromes, intractable, with status epilepticu"
+G40501,2,2,"Epileptic seizures related to external causes, not intractable, with status epilepticus"
+G40812,2,2,"Lennox-Gastaut syndrome, not intractable, without status epilepticus"
+G40833,2,0,"Dravet syndrome, intractable, with status epilepticus"
+G40B09,2,0,"Juvenile myoclonic epilepsy, not intractable, without status epilepticus"
+G40111,1,2,Localization-related (focal) (partial) symptomatic epilepsy and epileptic syndromes wit
+G40019,1,1,Localization-related (focal) (partial) idiopathic epilepsy and epileptic syndromes with
+G40B19,1,1,"Juvenile myoclonic epilepsy, intractable, without status epilepticus"
+G4010,1,0,NA
+G4031,1,0,NA
+G40811,1,0,"Lennox-Gastaut syndrome, not intractable, with status epilepticus"
+G40A01,1,0,"Absence epileptic syndrome, not intractable, with status epilepticus"
+F845,0,1,Asperger's syndrome
