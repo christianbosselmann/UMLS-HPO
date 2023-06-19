@@ -1,9 +1,9 @@
 ### UMLS-HPO ANALYSIS OF INDIVIDUALS WITH GENETIC EPILEPSY SYNDROMES -----------
-## Main analysis pipeline
+## Validity analysis
 ##
 ## Author: Christian Bosselmann, MD
 ##
-## Date Created: 2023-02-07
+## Date Created: 2023-06-19
 ##
 ## Copyright (c) Christian Bosselmann, 2023
 ## Email: bosselc@ccf.org
@@ -72,50 +72,17 @@ prop_map <- ont_hpo$ancestors %>%
   enframe() %>%
   rename(term = name, prop_terms = value)
 
-### DATA ----------------------------------------------------------------------
+### DATA -----------------------------------------------------------------------
 # data: all encounters per patient, ages 0-6, grouped by gene positive / negative
 df_raw <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/longitudinal_genetic.csv")
 
-# data: list of MRNs per patient subgroup
-df_cdkl5 <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/cdkl5_genetic.csv")
-df_scn1a <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/scn1a_genetic.csv")
-df_tsc <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/tsc_genetic.csv")
-
-# preprocessing: all
+# preprocessing
 df <- df_raw %>% 
-  select(PatientId, # patient ID
-         ConceptID, # UMLS code for encounter
-         GENEPOS_comb, # binary vector: non-genetic vs likely genetic patient
-         ContactAge, # relative age at encounter
-         ProcAge # age at epilepsy CPT
-  ) %>%
+  select(PatientId, MedicalRecordNumber, ConceptID, GENEPOS_comb, ContactAge, ProcAge) %>%
   group_by(PatientId) %>%
   arrange(desc(ContactAge)) %>%
-  # missing data imputation
   fill(ContactAge, .direction = c("up")) %>%
   na.omit
-
-# preprocessing: gene subgroups
-df_genes <- df_raw %>%
-  # mutate in logical flag for gene subgroup membership
-  mutate(cdkl5 = .$MedicalRecordNumber %in% df_cdkl5$MRN) %>%
-  mutate(scn1a = .$MedicalRecordNumber %in% df_scn1a$PAT_MRN_ID) %>%
-  mutate(tsc = .$MedicalRecordNumber %in% df_tsc$MedicalRecordNumber) %>%
-  select(PatientId, ConceptID, GENEPOS_comb, ContactAge, ProcAge, cdkl5, scn1a, tsc) %>%
-  group_by(PatientId) %>%
-  arrange(desc(ContactAge)) %>%
-  # missing data imputation
-  fill(ContactAge, .direction = c("up")) %>%
-  na.omit %>%
-  # merging group columns, descriptive labels
-  mutate(status = 
-           ifelse(scn1a == TRUE, "scn1a", 
-                  ifelse(cdkl5 == TRUE, "cdkl5", 
-                         ifelse(tsc == TRUE, "tsc",
-                                ifelse(GENEPOS_comb == "N", "nongenetic",
-                                       ifelse(GENEPOS_comb == "Y", "genetic",
-                                              NA)))))) %>%
-  select(PatientId, ConceptID, ContactAge, ProcAge, status)
 
 # by-patient demographic data and age statistics
 df_person <- df_raw %>%
@@ -124,7 +91,25 @@ df_person <- df_raw %>%
             min_age = min(ContactAge, na.rm = TRUE),
             median_age = median(ContactAge, na.rm = TRUE))
 
-# map subgroup dataframe to HPO and propagate
+### GROUPING AND MATCHING ------------------------------------------------------
+# strict definition: controls also must have received genetic testing
+df_cpt <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/cpts_genetic_all_pts.csv")
+
+df_strict <- df %>%
+  filter(MedicalRecordNumber %in% df_cpt$PAT_MRN_ID)
+
+# strict case definition: exclude genetic individuals (cases) with VUS
+df_rev <- readxl::read_excel("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/chartreview_2023-04-28.xlsx")
+vec_rev <- df_rev %>% filter(is_genetic == FALSE) %>% pull(MedicalRecordNumber)
+
+df_strict <- df_strict %>%
+  filter(!MedicalRecordNumber %in% vec_rev)
+
+# flag case and control explicitly
+df_genes <- df_strict %>% mutate(status = ifelse(GENEPOS_comb == "N", 0,
+                                                ifelse(GENEPOS_comb == "Y", 1, NA)))
+
+# map to HPO and propagate
 df_genes_mapped <- df_genes %>%
   left_join(hpo_map, by = "ConceptID") %>%
   rename(term = name) %>%
@@ -146,27 +131,13 @@ df_match <- df_genes %>%
   left_join(df_person[,c("PatientId", "Gender", "Ethnicity", "median_age")], by = "PatientId") %>%
   distinct(PatientId, Gender, Ethnicity, median_age, status)
 
-# set covariates as factors
-df_match <- df_match %>%
-  mutate(Gender = as.factor(Gender)) %>%
-  mutate(Ethnicity = as.factor(Ethnicity))
-
-## Group: genetic vs. non-genetic
-df_match1 <- df_match %>%
-  mutate(status = recode(status, 
-                         "nongenetic" = 0,
-                         "genetic" = 1,
-                         "scn1a" = 1,
-                         "cdkl5" = 1,
-                         "tsc" = 1)) 
-
-df_match1 <- matchit(status ~ median_age + Ethnicity + Gender, 
-                     data = df_match1, ratio = 1,
+# do matching
+df_match <- matchit(status ~ median_age + Ethnicity + Gender, 
+                     data = df_match, ratio = 1,
                      method = flag_match, distance = "glm")
 
-df_match1 <- match.data(df_match1)
+df_match1 <- match.data(df_match)
 
-# optional: downsample number of encounters per patient to control for group diff.
 df_match1 <- downsampleMatch(df_match1, df)
 
 df_match1 <- df_match1 %>%
@@ -181,49 +152,12 @@ df_match1 <- df_match1 %>%
   rename(group = status) %>%
   mutate(group = as.logical(group))
 
-## Group: SCN1A vs. CDKL5
-df_match8 <- df_match %>%
-  filter(status %in% c("scn1a", "cdkl5")) %>%
-  mutate(status = recode(status, 
-                         "cdkl5" = 0,
-                         "scn1a" = 1)) 
+# subset original dataframe to this strict cohort
+df <- df %>%
+  filter(PatientId %in% df_match1$PatientId)
 
-df_match8 <- df_match8 %>%
-  # # merge in ConceptIDs
-  left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
-  # merge in propagated HPO terms
-  left_join(hpo_map, by = "ConceptID") %>%
-  rename(term = name) %>%
-  left_join(prop_map, by = "term") %>%
-  select(-term) %>%
-  rename(term = prop_terms) %>%
-  na.omit %>%
-  unnest(cols = c(term)) %>%
-  # recode for later enrichment plots
-  rename(group = status) %>%
-  mutate(group = as.logical(group))
-
-### SUMMARY STATS -------------------------------------------------------------
-## demographic table
-tbl_person <- df_person %>%  
-  # can subset to matched cohort
-  filter(PatientId %in% df_match1$PatientId) %>%
-  # recode UMLS to sex
-  mutate(Gender = recode(Gender, 
-                         "C0086582" = "Male",
-                         "C0086287" = "Female")) %>%
-  # recode UMLS to ethnicity
-  mutate(Ethnicity = recode(Ethnicity, 
-                            "C1518424" = "Not Hispanic or Latino",
-                            "C1549625" = "Unknown",
-                            "C5441846" = "Hispanic or Latino",
-                            "None" = "Unknown")) %>% 
-  summary_factorlist(dependent = "GENEPOS_comb", 
-                     explanatory = c("Gender", "Ethnicity", "ProcAge", 
-                                     "min_age", "median_age", "max_age"),
-                     p = TRUE, na_include = TRUE)  %>%
-  knitr::kable("html") %>%
-  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE) 
+### VALIDITY ANALYSIS ----------------------------------------------------------
+# repeat key analysis for this stricter case-control subset, cf. pipeline.R
 
 ## p1: flag plot of encounters over age
 p1 <- df %>%
@@ -427,22 +361,6 @@ enrich1$plot <- enrich1$plot +
   scale_x_continuous( breaks=pretty_breaks()) +
   scale_y_continuous( breaks=pretty_breaks()) +
   ggtitle("Genetic vs. Non-Genetic") +
-  theme(plot.title = element_text(hjust = 0.5, size = 18))
-
-## Group: SCN1A vs. CDKL5
-enrich8 <- df_match8 %>%
-  enrichmentPlot(., ont_hpo, forest = TRUE)
-
-# manual labels
-enrich8$plot$data$expcat_text <- NA
-enrich8$plot$data[enrich8$plot$data$description == "Arrhythmia", ]$expcat_text <- "Arrhythmia"
-enrich8$plot$data[enrich8$plot$data$description == "Abnormality of movement", ]$expcat_text <- "Abnormality of movement"
-enrich8$plot$data[enrich8$plot$data$description == "Infection-related seizure", ]$expcat_text <- "Infection-related seizure"
-enrich8$plot$data[enrich8$plot$data$description == "Abnormality of the immune system", ]$expcat_text <- "Abnormality of the immune system"
-
-enrich8$plot <- enrich8$plot +
-  coord_fixed(xlim = c(0, .3), ylim = c(0, .3)) +
-  ggtitle("SCN1A vs. CDKL5") +
   theme(plot.title = element_text(hjust = 0.5, size = 18))
 
 ### LONGITUDINAL ANALYSIS -----------------------------------------------------
@@ -807,11 +725,11 @@ pqq <- gg_qqplot(df_conceptmatch$P_i) +
   geom_hline(yintercept = -log10(0.05), linetype = "dashed") +
   geom_hline(yintercept = -log10(0.05/length(unique(df_match1$ConceptID))), linetype = "dashed", col = "red") 
 
-# keep significant associations
+# keep significant associations: FDR
 df_conceptmatch <- df_conceptmatch %>%
   filter(P < 0.05)
 
-# get descriptions
+# get descriptions; note: to discuss in text
 df_conceptmatch <- df_conceptmatch %>%
   left_join(umls_map, by = "ConceptID")
 
@@ -847,7 +765,7 @@ p_forest_nonhpo <- df_conceptmatch %>%
 
 ## get data
 df_trans <- df_genes %>%
-  filter(status %in% c("genetic", "nongenetic")) %>%
+  filter(status %in% c("0", "1")) %>%
   distinct(PatientId, ConceptID, ContactAge, status) %>%
   mutate(age_group = case_when(ContactAge > 18 & ContactAge < 20 ~ 1,
                                ContactAge < 18 ~ 0,
@@ -905,10 +823,12 @@ df_trans[df_trans$ConceptID == "C0260698", ]$ConceptDesc <- NA
 df_trans[df_trans$ConceptID == "C0004352", ]$ConceptDesc <- "Autistic disorder"
 df_trans[df_trans$ConceptID == "C2911178", ]$ConceptDesc <- "Encounter for long-term use of anticoagulants"
 df_trans[df_trans$ConceptID == "C0004352", ]$ConceptDesc <- "Autistic disorder"
+df_trans[df_trans$ConceptID == "C2911575", ]$ConceptDesc <- "Dependence on respirator [ventilator] status"
+df_trans[df_trans$ConceptID == "C0477972", ]$ConceptDesc <- "Congenital malformations of brain"
 
 # forest plot: genetic group
 pt1 <- df_trans %>%
-  filter(status == "genetic") %>%
+  filter(status == "1") %>%
   na.omit %>%
   slice_max(order_by = Y, n = 4, with_ties = FALSE) %>%
   ggplot(aes(y = reorder(ConceptDesc, OR))) +
@@ -935,12 +855,17 @@ df_trans[df_trans$ConceptID == "C0042870", ]$ConceptDesc <- "Other specified pos
 df_trans[df_trans$ConceptID == "C0154714", ]$ConceptDesc <- "Localization-related epilepsy, without mention of intractable epilepsy "
 df_trans[df_trans$ConceptID == "C0042870", ]$ConceptDesc <- NA
 
+df_trans[df_trans$ConceptID == "C0477972", ]$ConceptDesc <- "Other specified congenital malformations of brain"
+df_trans[df_trans$ConceptID == "C2875146", ]$ConceptDesc <- "Migraine without aura, not intractable"
 df_trans[df_trans$ConceptID == "C0155886", ]$ConceptDesc <- "Asthma"
 df_trans[df_trans$ConceptID == "C2910447", ]$ConceptDesc <- "Medical examination w/o abnormal findings"
 df_trans[df_trans$ConceptID == "C0154714", ]$ConceptDesc <- "Focal epilepsy, non-intractable"
 
+df_trans[df_trans$ConceptID == "C2875148", ]$ConceptDesc <- "Migraine without aura, intractable"
+df_trans[df_trans$ConceptID == "C0028768", ]$ConceptDesc <- "Obsessive-Compulsive Disorder"
+
 pt2 <- df_trans %>%
-  filter(status == "nongenetic") %>%
+  filter(status == "0") %>%
   na.omit %>%
   slice_max(order_by = Y, n = 4, with_ties = FALSE) %>%
   ggplot(aes(y = reorder(ConceptDesc, OR))) +
@@ -949,7 +874,7 @@ pt2 <- df_trans %>%
   geom_vline(xintercept = 1, linetype = "dashed") +
   scale_x_continuous(trans = 'log10',
                      limits = c(1, 35),
-                     oob = scales::oob_squish_infinite) +
+                     oob = scales::oob_squish) +
   scale_y_discrete(labels = label_wrap(30)) +
   expand_limits(x = 1) +
   theme_classic() +
@@ -960,85 +885,6 @@ pt2 <- df_trans %>%
 pt <- cowplot::plot_grid(pt1 + theme(axis.title.x = element_blank()), 
                          pt2, 
                          ncol = 1, align = "v")
-
-### MORTALITY ------------------------------------------------------------------
-## data
-df_deaths <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/Deathdates.csv",
-                      col_names = c("MedicalRecordNumber", "Status", "DateOfDeath"))
-
-# map to PatientId
-mrn_map <- df_raw %>% distinct(PatientId, MedicalRecordNumber)
-
-df_deaths <- df_deaths %>%
-  left_join(mrn_map, by = "MedicalRecordNumber")
-
-# get age at death
-dob_map <- df_raw %>% distinct(PatientId, DateOfBirth)
-
-df_deaths <- df_deaths %>%
-  left_join(dob_map, by = "PatientId")
-
-df_deaths <- df_deaths %>%
-  mutate(DateOfBirth = as.Date(DateOfBirth, format = "%m/%d/%y")) %>%
-  mutate(DateOfDeath = as.Date(DateOfDeath, format = "%m/%d/%Y")) %>%
-  mutate(AgeAtDeath = DateOfDeath - DateOfBirth)
-
-# add death dates to matched cohort; only keep distinct patient-death pairs
-df_death1 <- df_match1 %>%
-  left_join(df_deaths[ ,c("PatientId", "AgeAtDeath")], by = "PatientId")
-
-# change ContactAge to days for survival analysis
-df_death1 <- df_death1 %>%
-  mutate(ContactAge = ContactAge*365)
-
-# filter by individuals with at least two years of follow-up available
-df_hasfollowup <- p1$data %>%
-  mutate(dur = upper-lower) %>%
-  filter(dur > 1) %>%
-  distinct(PatientId)
-
-df_death1 <- df_death1 %>%
-  filter(PatientId %in% df_hasfollowup$PatientId)
-
-# if a patient is deceased, set their age at last contact for the survival analysis
-df_death1 <- df_death1 %>%
-  mutate(isDead = if_else(!is.na(AgeAtDeath), 1, 0))
-
-df_surv <- df_death1 %>%
-  filter(isDead == 1) %>%
-  group_by(PatientId) %>%
-  slice_max(order_by = ContactAge, n = 1) %>%
-  mutate(survivalFlag = 1)
-
-df_surv <- left_join(df_death1, df_surv) %>%
-  mutate(survivalFlag = if_else(is.na(survivalFlag),0,1))
-
-# reduce to single encounters
-df_surv <- df_surv %>%
-  distinct(PatientId, group, ContactAge, survivalFlag)
-
-# preprocessing for suvival analysis
-df_surv <- df_surv %>%
-  mutate(group = as.integer(group)) %>%
-  mutate(ContactAge = as.numeric(ContactAge)/365)
-
-# for each patient, keep only their last known status
-df_surv <- df_surv %>%
-  group_by(PatientId) %>%
-  slice_max(order_by = ContactAge, n = 1)
-
-km_fit <- survfit(Surv(ContactAge, survivalFlag) ~ group, data = df_surv)
-
-p_surv <- survminer::ggsurvplot(km_fit, data = df_surv,
-                                pval = TRUE,
-                                risk.table = "nrisk_cumcensor",
-                                pval.coord = c(2, 0.55),
-                                ggtheme = theme(text=element_text(size=10)),
-                                xlab = c("Age (years)"),
-                                xlim = c(0, 25), ylim = c(0.50, 1.0),
-                                legend = c(0.8, 0.15),
-                                legend.labs = c("Non-genetic", "Likely genetic"),
-                                palette = "Dark2") 
 
 ### INPATIENT / OUTPATIENT STATS -----------------------------------------------
 ## data: use prescription and admission data to find inpatient/outpatient encounters
@@ -1074,49 +920,19 @@ stats_inpatient <- df_inpatient %>%
             min = min(n), max = max(n),
             n = n_distinct(PatientId))
 
-### UTILIZATION ANALYSIS -------------------------------------------------------
-## data: list of patient specialist encounters from Alina Ivaniuk, 2023-03-07
-df_util <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/encounter-info-epilepsy.csv")
-
-# subset by case-control cohort
-df_util <- df_util %>%
-  filter(PatientID %in% df_match1$PatientId)
-
-# get date of birth from df_lookup and calculate age at encounter
-df_util <- df_util %>%
-  rename(PatientId = PatientID) %>%
-  left_join(df_lookup[ ,c("PatientId", "DateOfBirth")], by = "PatientId") %>%
-  mutate(DateOfBirth = lubridate::mdy(DateOfBirth)) %>%
-  mutate(ENC_DT = lubridate::as_date(ENC_DT)) %>%
-  mutate(AgeAtEncounter = difftime(ENC_DT, DateOfBirth, units = "days")) %>%
-  mutate(MonthsEncounter = as.numeric(round(AgeAtEncounter/30, 0))) %>%
-  mutate(YearsEncounter = as.numeric(AgeAtEncounter/365.2425))
-
-# get group label
-map_match <- df_match1 %>%
-  distinct(PatientId, group)
-
-df_util <- df_util %>%
-  left_join(map_match)
-
-# get count of unique specialty descriptions per patient
-# TODO: use number of unique specialties seen for PheIndex score instead of current assumption
-stats_util <- df_util %>%
-  group_by(PatientId) %>%
-  distinct(PatientId, group, SPECIALTY_DESC) %>%
-  count()
-
-# idea: we could look at ENC_TYPE_DESC between groups and during 2019-2022 vs before. Telehealth during COVID?
-
 ### ER VISITS -----------------------------------------------------------------
 ## data: ER admissions for all patients
-df_er <- readxl::read_excel("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/ER_Visits.xlsx")
+df_er <- readxl::read_excel("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/ER_Visits.xlsx") 
 
 # get group label
 df_er <- df_er %>%
   rename(PatientId = PatientID) %>%
   left_join(map_match) %>%
   na.omit
+
+# subset to strict cohort criteria
+df_er <- df_er %>%
+  filter(PatientId %in% df$PatientId)
 
 # count admissions for each patient
 p_er <- df_er %>%
@@ -1135,254 +951,6 @@ df_er <- df_er %>%
   group_by(group) %>%
   add_count(PatientId, AdmissionType) %>%
   distinct(PatientId, n)
-
-### PHEINDEX SCORING -----------------------------------------------------------
-## ref: https://www.medrxiv.org/content/10.1101/2023.01.27.23285056v1.full.pdf
-## data: list of PatientIds, ContactAges, group membership and concepts
-df_pheindex <- df_concepts[df_concepts$PatientId %in% df_match1$PatientId, ] %>%
-  distinct(PatientId, ConceptID) %>%
-  mutate(score = 0)
-
-## C0: list of dataframes for scoring
-ls_pheindex <- list()
-
-## C1: Prolonged stay in the neonatal intensive care unit
-# data not available
-
-## C2: Prolonged or multiple hospitalizations after discharged from birth
-# hasInpatient flag from df_inpatient
-ls_pheindex[[2]]  <- df_inpatient %>%
-  distinct(PatientId, hasInpatient) %>%
-  filter(hasInpatient == TRUE) %>%
-  mutate(score = 3)
-
-## C3: Visits or consults with multiple specialists other than general pediatricians.
-# True for all patients (due to cohort definition)
-ls_pheindex[[3]]  <- df_pheindex %>%
-  distinct(PatientId) %>%
-  mutate(score = 3)
-
-## C4: Multiple emergency room (ER) visits.
-ls_pheindex[[4]] <- df_er %>%
-  filter(n >= 5) %>%
-  mutate(score = 1) %>%
-  distinct(PatientId, score)
-
-## C5: Feeding support (Gastrostomy tube).
-ls_pheindex[[5]] <- rbind(
-  df_pheindex[df_pheindex$ConceptID == "C0260683", ], # Gastrostomy status
-  df_pheindex[df_pheindex$ConceptID == "C0260761", ] # Encounter for attention to gastrostomy
-) %>%
-  distinct(PatientId, score) %>%
-  mutate(score = 2)
-
-## C6: Respiratory support (tracheostomy and mechanical ventilation outside of surgery).
-ls_pheindex[[6]] <- rbind(
-  df_pheindex[df_pheindex$ConceptID == "C0260682", ], # Tracheostomy status
-  df_pheindex[df_pheindex$ConceptID == "C2911575", ] # Dependence on respirator [ventilator] status
-) %>%
-  distinct(PatientId, score) %>%
-  mutate(score = 2)
-
-## C7: Imaging.
-# NA
-
-## C8: Genetic diagnostic tests.
-# True for all likely genetic patients, false for all non-genetic patients.
-ls_pheindex[[8]] <- df_match1 %>%
-  distinct(PatientId, group) %>%
-  filter(group == TRUE) %>%
-  mutate(score = 1)
-
-## C9: Metabolic diagnostic tests
-ls_pheindex[[9]] <- rbind(
-  df_pheindex[df_pheindex$ConceptID == "C0494356", ], # Hypo-osmolality and hyponatremia
-  df_pheindex[df_pheindex$ConceptID == "C0020645", ], # Hyposmolality and/or hyponatremia
-  df_pheindex[df_pheindex$ConceptID == "C0029481", ] # Other abnormal blood chemistry
-) %>%
-  distinct(PatientId, score) %>%
-  mutate(score = 1)
-
-## C10: In-hospital death
-# True for all deaths in survival analysis, false otherwise
-ls_pheindex[[10]] <- df_surv %>%
-  filter(survivalFlag == 1) %>%
-  distinct(PatientId) %>%
-  mutate(score = 3)
-
-## C11: Developmental delay.
-ls_pheindex[[11]] <- rbind(
-  df_pheindex[df_pheindex$ConceptID == "C0424605", ], # Developmental delay
-  df_pheindex[df_pheindex$ConceptID == "C0878706", ], # Lack of normal physiological development, unspecified
-  df_pheindex[df_pheindex$ConceptID == "C0476241", ], # Delayed developmental milestones
-  df_pheindex[df_pheindex$ConceptID == "C0878753", ], # Unspecified lack of expected normal physiological development in childhood
-  df_pheindex[df_pheindex$ConceptID == "C0154633", ], # Other developmental speech or language disorder
-  df_pheindex[df_pheindex$ConceptID == "C2830458", ], # Delayed milestone in childhood
-  df_pheindex[df_pheindex$ConceptID == "C0011757", ], # Developmental Coordination Disorder
-  df_pheindex[df_pheindex$ConceptID == "C0349324", ], # Other developmental disorders of speech and language
-  df_pheindex[df_pheindex$ConceptID == "C0236826", ], # Developmental expressive language disorder
-  df_pheindex[df_pheindex$ConceptID == "C3161331", ] # Unspecified intellectual disabilities
-) %>%
-  distinct(PatientId, score) %>%
-  mutate(score = 1)
-
-## C12: Diagnosis codes corresponding to metabolic diseases with ≥ 2 encounters
-ls_pheindex[[12]] <- rbind(
-  df_pheindex[df_pheindex$ConceptID == "C0025517", ], # Metabolic Diseases
-  df_pheindex[df_pheindex$ConceptID == "C0268641", ] # Amino acid transport disorder
-) %>%
-  distinct(PatientId, score) %>%
-  mutate(score = 3)
-
-## C13: Heart surgeries
-ls_pheindex[[13]] <- rbind(
-  df_pheindex[df_pheindex$ConceptID == "C2921289", ], # Personal history of (corrected) congenital malformations of heart and circulatory system 
-  df_pheindex[df_pheindex$ConceptID == "C0477999", ] # Other specified congenital malformations of heart
-) %>%
-  distinct(PatientId, score) %>%
-  mutate(score = 3)
-
-## get group membership for each patient, calculate pheindex scores
-df_pheindex <- lapply(ls_pheindex, function(x){x <- x[,c("PatientId", "score")]}) %>%
-  rbindlist(idcol = "id")
-
-map_match <- df_match1 %>%
-  distinct(PatientId, group)
-
-df_pheindex <- df_pheindex %>%
-  group_by(PatientId) %>%
-  summarize(score = sum(score)) %>%
-  left_join(map_match) %>%
-  na.omit
-
-stats_pheindex <- df_pheindex %>%
-  group_by(group) %>%
-  summarize(mean = mean(score),
-            sd = sd(score),
-            min = min(score),
-            max = max(score),
-            iqr = IQR(score))
-
-stats_p_pheindex <- df_pheindex %>%
-  summarize(pval = t.test(score ~ group)$p.value)
-
-## recode
-df_pheindex <- df_pheindex %>%
-  mutate(group = as.integer(group))
-
-df_pheindex$label <- NA
-df_pheindex[df_pheindex$group == 0, ]$label <- "Non-genetic"
-df_pheindex[df_pheindex$group == 1, ]$label <- "Likely genetic"
-
-## visualization: PhenIndex by group
-df_pheindex <- df_pheindex %>%
-  mutate(label = factor(label, levels = c("Non-genetic", "Likely genetic")))
-
-p_pheindex_violin <- df_pheindex %>%
-  ggplot(aes(y = score, x = label, fill = label)) +
-  geom_flat_violin(position = position_nudge(x = .1, y = 0), alpha = .8) +
-  guides(fill = "none", color = "none") +
-  scale_color_brewer(palette = "Dark2") +
-  scale_fill_brewer(palette = "Dark2") +
-  xlab("Group") +
-  ylab("PheIndex score") +
-  theme_classic() + 
-  coord_cartesian(xlim = c(1.5, 2)) +
-  geom_boxplot(width = .1, show.legend = FALSE, outlier.shape = NA, alpha = 0.5) +
-  ggpubr::stat_compare_means(aes(label = ..p.signif..), 
-                             comparisons = list(c("Non-genetic", "Likely genetic")),
-                             label.x = 1.5, label.y = c(15))
-
-## visualization: PhenIndex categories by group (id)
-df_phenindex <- lapply(ls_pheindex, function(x){x <- x[,c("PatientId", "score")]}) %>%
-  rbindlist(idcol = "id") %>%
-  group_by(PatientId, id) %>%
-  summarize(score = sum(score)) %>%
-  left_join(map_match) %>%
-  na.omit
-
-p_pheindex_bar <- df_phenindex %>%
-  ggplot(aes(x = as.factor(id), fill = group)) +
-  geom_bar(position = position_dodge2(width = 0.9, preserve = "single")) +
-  xlab("PheIndex criteria (#)") +
-  ylab("Individuals (n)") +
-  guides(fill = "none", color = "none") +
-  scale_color_brewer(palette = "Dark2") +
-  scale_fill_brewer(palette = "Dark2", labels = c("Non-genetic", "Likely genetic")) +
-  theme_classic() +
-  coord_cartesian(expand = FALSE) 
-
-# PheIndex criteria pairwise similarity heatmap
-df_phenindex <- df_phenindex %>%
-  mutate(id = as.factor(id))
-
-ls_phenindex <- split(df_phenindex, df_phenindex$id)
-ls_phenindex <- lapply(ls_phenindex, function(x){x <- x$PatientId})
-
-df_prop <- ls_phenindex %>% 
-  map_dfr(~ .x %>% as_tibble(), .id = "name") 
-
-df_prop <- reshape2::dcast(df_prop, name ~ value, length)
-
-df_prop <- df_prop[,-1]
-df_prop[df_prop > 0] <- 1 
-
-mat_pheno <- proxy::simil(x = df_prop,
-                          method = "cosine") # "jaccard", "euclidean", "cosine"
-
-mat_pheno <- as.matrix(mat_pheno)
-diag(mat_pheno) <- 1
-
-colnames(mat_pheno) <- levels(df_phenindex$id)
-rownames(mat_pheno) <- levels(df_phenindex$id)
-
-coul <- colorRampPalette(brewer.pal(8, "Reds"))(25)
-
-# plot
-p_pheindex_heatmap <- pheatmap(mat_pheno,
-                               display_numbers = TRUE,
-                               symm = TRUE,
-                               col = coul,
-                               fontsize_number = 6,
-                               xlab = "PheIndex criteria (#)",
-                               ylab = "PheIndex criteria (#)")
-
-p_pheindex_heatmap <- ggplotify::as.ggplot(p_pheindex_heatmap) 
-
-## table of PheIndex criteria for plot
-library(gtable)
-library(grid)
-library(gridExtra)
-p_pheindex_table <- tibble(Criterion = 1:13,
-                           Description = c("Prolonged stay in the NICU",
-                                           "Prolonged or multiple hospitalizations",
-                                           "Visits or consults with multiple specialists",
-                                           "Multiple emergency room visits",
-                                           "Feeding support",
-                                           "Respiratory support",
-                                           "Imaging",
-                                           "Genetic diagnostic tests",
-                                           "Metabolic diagnostic tests",
-                                           "In-hospital death",
-                                           "Developmental delay",
-                                           "Diagnosis corresponding to metabolic diseases",
-                                           "Heart surgeries"))
-
-p_pheindex_grob <- gridExtra::tableGrob(p_pheindex_table, 
-                                        rows = NULL,
-                                        theme = ttheme_minimal(rowhead=list(fg_params=list(hjust=0, x=0)),
-                                                               core=list(padding=unit(c(12, 4), "mm"),
-                                                                         fg_params=list(hjust=0, x=0.1))))
-
-p_pheindex_grob <- gtable_add_grob(p_pheindex_grob,
-                                   grobs = rectGrob(gp = gpar(fill = NA, lwd = 2)),
-                                   t = 2, b = nrow(p_pheindex_grob), l = 1, r = ncol(p_pheindex_grob))
-
-p_pheindex_grob <- gtable_add_grob(p_pheindex_grob,
-                                   grobs = rectGrob(gp = gpar(fill = NA, lwd = 2)),
-                                   t = 1, l = 1, r = ncol(p_pheindex_grob))
-
-p_pheindex_table <- ggplotify::as.ggplot(p_pheindex_grob)
 
 ### OTHER SUB-ANALYSIS ---------------------------------------------------------
 ## For HPO OR plot, find the terms that make up geniturourinary system abnormality
@@ -1453,282 +1021,5 @@ pqg <- as.ggplot(expression(plot(g2,
 
 pqg <- pqg + 
   theme(plot.margin = unit(c(-50, -20, -50, -50), "pt"))
-
-### GENERATE REPORT ------------------------------------------------------------
-# set global option of decimal point to midline for Lancet
-# options(OutDec = "·")
-
-## Figure 1: Descriptive statistics of the study cohort.
-Fig1 <- cowplot::plot_grid(p1,
-                           p2 + scale_x_discrete(labels=c("Non-genetic", "Likely genetic")),
-                           p3 + scale_x_discrete(labels=c("Non-genetic", "Likely genetic")),
-                           p5 + theme(legend.position = "none"),
-                           p4 + theme(legend.position = "none"),
-                           pt,
-                           nrow = 2, labels = "AUTO", align = "none")
-
-pdf(file = "Fig1.pdf",
-    width = 12,
-    height = 8)
-
-Fig1
-
-dev.off()
-
-## Figure 2: Genetic vs. Non-Genetic
-Fig2 <- cowplot::plot_grid(pqq, 
-                           p_forest_nonhpo,
-                           enrich1$forest,
-                           pqg,
-                           enrich1$plot + 
-                             ggtitle("") + 
-                             theme_set(theme_classic()) +
-                             # coord_cartesian(xlim = c(0, 0.15), ylim = c(0, 0.15)) +
-                             ylab("Frequency, likely genetic patient encounters") +
-                             xlab("Frequency, non-genetic patients encounters"),
-                           # enrich8$plot + 
-                           #   ggtitle("") + 
-                           #   theme_set(theme_classic()) +
-                           #   # coord_cartesian(xlim = c(0, 0.5), ylim = c(0, 0.5)) +
-                           #   ylab("Frequency, SCN1A patient encounters") +
-                           #   xlab("Frequency, CDKL5 patient encounters"),
-                           nrow = 2, labels = "AUTO", align = "none")
-
-pdf(file = "Fig2.pdf",
-    width = 12,
-    height = 8,
-    encoding = 'CP1253.enc') # to draw Lambda on panel A
-
-Fig2
-
-dev.off()
-
-## Figure 3: Nicer heatmaps of longitudinal phenotypes and prescription patterns
-Fig3 <- cowplot::plot_grid(pheat1 + theme(legend.position = "none"), 
-                           p_asm,
-                           nrow = 1, labels = "AUTO", align = "none")
-
-pdf(file = "Fig3.pdf",
-    width = 12,
-    height = 8)
-
-Fig3
-
-dev.off()
-
-## Figure S1: Kaplan-Meier plot
-pdf(file = "FigS1.pdf",
-    width = 8,
-    height = 6,
-    onefile = FALSE)
-
-p_surv
-
-dev.off()
-
-## Figure S2: PheIndex plots
-FigS2 <- cowplot::plot_grid(p_pheindex_violin, p_pheindex_bar, 
-                            p_pheindex_heatmap, p_pheindex_table,
-                            nrow = 2, labels = "AUTO", align = "hv")
-
-pdf(file = "FigS2.pdf",
-    width = 12,
-    height = 12)
-
-FigS2
-
-dev.off()
-
-### CHART REVIEW --------------------------------------------------------------
-# pull patient MRNs for manual chart review
-df_match1 %>%
-  filter(term == "HP:0000083") %>% # renal insufficiency
-  distinct(PatientId) %>%
-  left_join(mrn_map) %>%
-  write_csv("/Users/cbosselmann/Desktop/hp_0000083.csv")
-
-df_match1 %>%
-  filter(term == "HP:0004383") %>% # hypoplastic left heart syndrome
-  distinct(PatientId) %>%
-  left_join(mrn_map) %>%
-  write_csv("/Users/cbosselmann/Desktop/hp_0004383.csv")
-
-df_match1 %>%
-  filter(term == "HP:0000028") %>% # cryptorchidism
-  distinct(PatientId) %>%
-  left_join(mrn_map) %>%
-  write_csv("/Users/cbosselmann/Desktop/hp_0000028.csv")
-
-df_match1 %>%
-  filter(term == "HP:0000047") %>% # hypospadia
-  distinct(PatientId) %>%
-  left_join(mrn_map) %>%
-  write_csv("/Users/cbosselmann/Desktop/hp_0000047.csv")
-
-df_match1 %>%
-  filter(term == "HP:0000939") %>% # osteoporosis
-  distinct(PatientId) %>%
-  left_join(mrn_map) %>%
-  write_csv("/Users/cbosselmann/Desktop/hp_0000939.csv")
-
-### MISC ----------------------------------------------------------------------
-## get the number of SCN1A patients in the cohort and their mean follow-up
-tmp_scn1a <- df_scn1a %>%
-  rename(MedicalRecordNumber = PAT_MRN_ID) %>%
-  left_join(mrn_map)
-
-tmp_scn1a_fu <- p1$data %>%
-  filter(PatientId %in% tmp_scn1a$PatientId) %>%
-  mutate(dur = upper-lower) %>%
-  summarize(mean = mean(dur), median = median(dur),
-            sd = sd(dur), min = min(dur), max = max(dur),
-            iqr = IQR(dur))
-
-# get number of individual gene patients in cohort
-df_match1 %>%
-  distinct(PatientId) %>%
-  left_join(mrn_map) %>%
-  # filter(PatientId %in% df_scn1a$PatientID) %>%
-  # filter(MedicalRecordNumber %in% df_cdkl5$MRN) %>%
-  filter(MedicalRecordNumber %in% df_scn1a$PAT_MRN_ID) %>%
-  count()
-
-# follow-up stats for matched cohort
-stats_followup2 <- p1$data %>%
-  filter(PatientId %in% df_match1$PatientId) %>%
-  mutate(dur = upper-lower) %>%
-  summarize(sum(dur))
-
-# average number of encounters per patient
-df_match1 %>%
-  distinct(PatientId, ContactAge) %>%
-  group_by(PatientId) %>%
-  count() %>%
-  ungroup() %>%
-  summarize(mean = mean(n), median = median(n), sd = sd(n), min = min(n), max = max(n))
-
-# average UMLS concepts per patient
-df_match1 %>%
-  distinct(PatientId, ConceptID) %>%
-  group_by(PatientId) %>%
-  count() %>%
-  ungroup() %>%
-  summarize(mean = mean(n), sd = sd(n), min = min(n), max = max(n))
-
-# average HPO terms per patient
-df_match1 %>%
-  distinct(PatientId, term) %>%
-  group_by(PatientId) %>%
-  count() %>%
-  ungroup() %>%
-  summarize(mean = mean(n), sd = sd(n), min = min(n), max = max(n))
-
-# add OR 95% CI for text
-# usage: getCI(enrich1$data) %>% filter(description %like% "TERM")
-getCI <- function(input){
-  concept_odds <- data.frame(OR = 1:nrow(input),
-                             CI1 = 1:nrow(input),
-                             CI2 = 1:nrow(input))
-  for(i in 1:nrow(input)){
-    row <- input[i, ] %>%
-      ungroup() %>%
-      select(Y, Y_out, N, N_out) %>%
-      data.matrix()
-    mat <- matrix(data = row, nrow=2)
-    fish <- fisher.test(mat)
-    concept_odds$OR[i] <- fish$estimate
-    concept_odds$CI1[i] <- fish$conf.int[[1]] # lower bound
-    concept_odds$CI2[i] <- fish$conf.int[[2]] # upper bound
-  }
-  res <- cbind(input, concept_odds)
-  return(res)
-}
-
-## DL analysis 08/03/2023
-# wants to see group differences between non-mapped terms in a list provided by Mark
-tmp_xl <- readxl::read_excel("~/Desktop/EpilepsyHPO Mappings.xlsx", sheet = 2)
-tmp_xl$ConceptID
-
-# find non-hpo analysis output for these concepts
-df_conceptmatch %>%
-  filter(ConceptID %in% tmp_xl$ConceptID) %>%
-  left_join(tmp_xl[ ,c("ConceptID", "ConceptDescription")]) %>%
-  write_csv("~/Desktop/nonhpo_2023-03-08.csv")
-
-## Flowchart of study population
-librarian::shelf(DiagrammeR,
-                 DiagrammeRsvg,
-                 rsvg)
-options(OutDec = ".")
-p_flowchart <- grViz("digraph flowchart {
-      node [fontname = Helvetica, shape = rectangle]        
-      tab1 [label = '@@1']
-      tab2 [label = '@@2']
-      tab3 [label = '@@3']
-      tab4 [label = '@@4']
-      tab5 [label = '@@5']
-      tab6 [label = '@@6']
-      m1 [label = '@@7']
-      m2 [label = '@@8']
-      
-      node [shape=none, width=0, height=0, label='']
-      p1;
-      {rank=same; p1,m1}
-      {rank=same; m2,p1}
-
-      # edge definitions with the node IDs
-      tab1 -> tab2;
-      tab2 -> tab3;
-      tab3 -> tab4;
-      tab4 -> tab5;
-      p1 -> tab6;
-      p1 -> m1;
-      
-      edge [dir=none]
-      tab5 -> p1;
-      
-      edge [dir=back]
-      m2 -> p1
-      }
-
-      [1]: 'Any ICD-10 G40- for Epilepsy \\n n = 0000'
-      [2]: 'Any procedural code (CPT) for EEG \\n n = 0000'
-      [3]: 'Age 0-5 years at diagnosis \\n n = 0000'
-      [4]: 'Participants eligible for stratification \\n n = 1671'
-      [5]: 'Likely genetic patients n = 274 \\n Not likely genetic patients n = 1397'
-      [6]: 'Study cohort \\n n = 503'
-      [7]: 'Missing data \\n n = 25'
-      [8]: 'Total lost to matching \\n n = 1168'
-      ")
-
-p_flowchart %>%
-  export_svg %>% 
-  charToRaw %>% 
-  rsvg_pdf("studyflowchart.pdf")
-
-## ICD-10 statistics for cases and controls
-# define list of ICD codes of interest (i.e. epilepsy-related) as patterns
-tbl_icd <- df_raw %>%
-  filter(PatientId %in% df_match1$PatientId) %>%
-  distinct(PatientId, ICD10Code) %>%
-  filter(ICD10Code %like% "R56" | # febrile seizures and other convulsions
-           ICD10Code %like% "G40" | # epilepsy
-           ICD10Code %like% "F84") %>% # pervasive and specific developmental disorders
-  left_join(df_match1[ ,c("PatientId", "group")], by = "PatientId") %>%
-  distinct(PatientId, ICD10Code, group) %>%
-  group_by(ICD10Code, group) %>%
-  summarize(n = n_distinct(PatientId)) %>%
-  arrange(desc(n)) %>%
-  pivot_wider(names_from = "group", values_from = "n") %>%
-  replace(is.na(.), 0) %>%
-  arrange(desc(`TRUE`), desc(`FALSE`))
-
-# get map
-icd_map <- read_table("icd10cm.txt", col_names = FALSE) %>%
-  rename(ICD10Code = X1, description = X2)
-
-tbl_icd <- tbl_icd %>%
-  mutate(ICD10Code = gsub("\\.", "", ICD10Code)) %>%
-  left_join(icd_map) 
 
 
