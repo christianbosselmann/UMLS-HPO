@@ -85,9 +85,10 @@ enrichmentPlot <- function(data,
          x = "Control") +
     geom_label_repel(aes(label = expcat_text), 
                      color = "black", 
-                     max.overlaps = 8, 
+                     max.overlaps = 6, 
                      size = 3, 
-                     force_pull = 0.2,
+                     force = 5,
+                     force_pull = 0.00001,
                      min.segment.length = 0) +
     theme(axis.text = element_text(color = "black"),
           axis.line = element_line(color = "black")) +

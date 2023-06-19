@@ -96,7 +96,7 @@ df_person <- df_raw %>%
 df_cpt <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/cpts_genetic_all_pts.csv")
 
 df_strict <- df %>%
-  filter(MedicalRecordNumber %in% df_cpt$PAT_MRN_ID)
+  filter(MedicalRecordNumber %in% df_cpt$PAT_MRN_ID | GENEPOS_comb == "Y")
 
 # strict case definition: exclude genetic individuals (cases) with VUS
 df_rev <- readxl::read_excel("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/chartreview_2023-04-28.xlsx")
@@ -107,7 +107,7 @@ df_strict <- df_strict %>%
 
 # flag case and control explicitly
 df_genes <- df_strict %>% mutate(status = ifelse(GENEPOS_comb == "N", 0,
-                                                ifelse(GENEPOS_comb == "Y", 1, NA)))
+                                                 ifelse(GENEPOS_comb == "Y", 1, NA)))
 
 # map to HPO and propagate
 df_genes_mapped <- df_genes %>%
@@ -133,8 +133,8 @@ df_match <- df_genes %>%
 
 # do matching
 df_match <- matchit(status ~ median_age + Ethnicity + Gender, 
-                     data = df_match, ratio = 1,
-                     method = flag_match, distance = "glm")
+                    data = df_match, ratio = 1,
+                    method = flag_match, distance = "glm")
 
 df_match1 <- match.data(df_match)
 
@@ -215,7 +215,8 @@ p2 <- ggplot(data = df, aes(x = GENEPOS_comb, y = ContactAge, fill = GENEPOS_com
   guides(fill = "none", color = "none") +
   scale_color_brewer(palette = "Dark2") +
   scale_fill_brewer(palette = "Dark2") +
-  xlab("Group") +
+  scale_x_discrete(labels = c("Non-genetic", "Likely genetic")) +
+  xlab("") +
   ylab("Age at all encounters") +
   theme_classic() + 
   coord_cartesian(xlim = c(1.5, 2)) +
@@ -230,7 +231,8 @@ p3 <- ggplot(data = df, aes(x = GENEPOS_comb, y = ProcAge, fill = GENEPOS_comb))
   guides(fill = "none", color = "none") +
   scale_color_brewer(palette = "Dark2") +
   scale_fill_brewer(palette = "Dark2") +
-  xlab("Group") +
+  scale_x_discrete(labels = c("Non-genetic", "Likely genetic")) +
+  xlab("") +
   ylab("Age at diagnosis") +
   theme_classic() + 
   coord_cartesian(xlim = c(1.5, 2), ylim = c(0, 7)) +
@@ -296,6 +298,7 @@ p4 <- df_encounters_freq %>%
   geom_smooth(se = TRUE) +
   # geom_ribbon(aes(ymin = ymin, ymax = ymax, alpha = 0.1)) +
   theme_classic() +
+  theme(legend.position = "none") +
   guides(fill = guide_legend(title = "Group"),
          color = guide_legend(title = "Group")) +
   scale_color_brewer(palette = "Dark2") +
@@ -352,8 +355,8 @@ enrich1 <- df_match1 %>%
 enrich1$plot$data$expcat_text <- NA
 enrich1$plot$data[enrich1$plot$data$description == "Abnormality of the genitourinary system", ]$expcat_text <- "Abnormality of the genitourinary system"
 enrich1$plot$data[enrich1$plot$data$description == "Intracranial hemorrhage", ]$expcat_text <- "Intracranial hemorrhage"
-enrich1$plot$data[enrich1$plot$data$description == "Behavioral abnormality", ]$expcat_text <- "Behavioral abnormality"
-enrich1$plot$data[enrich1$plot$data$description == "Simple febrile seizure", ]$expcat_text <- "Simple febrile seizure"
+# enrich1$plot$data[enrich1$plot$data$description == "Behavioral abnormality", ]$expcat_text <- "Behavioral abnormality"
+# enrich1$plot$data[enrich1$plot$data$description == "Simple febrile seizure", ]$expcat_text <- "Simple febrile seizure"
 enrich1$plot$data[enrich1$plot$data$description == "Hyperactivity", ]$expcat_text <- "Hyperactivity"
 
 enrich1$plot <- enrich1$plot +
@@ -825,6 +828,7 @@ df_trans[df_trans$ConceptID == "C2911178", ]$ConceptDesc <- "Encounter for long-
 df_trans[df_trans$ConceptID == "C0004352", ]$ConceptDesc <- "Autistic disorder"
 df_trans[df_trans$ConceptID == "C2911575", ]$ConceptDesc <- "Dependence on respirator [ventilator] status"
 df_trans[df_trans$ConceptID == "C0477972", ]$ConceptDesc <- "Congenital malformations of brain"
+df_trans[df_trans$ConceptID == "C0154719", ]$ConceptDesc <- "Other forms of epilepsy and recurrent seizures"
 
 # forest plot: genetic group
 pt1 <- df_trans %>%
@@ -843,7 +847,7 @@ pt1 <- df_trans %>%
   theme_classic() +
   theme(legend.position = "none") +
   ylab("") +
-  xlab("Odds ratio (95% CI, log scale)")
+  xlab("Odds ratio (95% CI)")
 
 # forest plot: nongenetic group
 # manual annotation for plot and recoding of synonymous concepts
@@ -958,8 +962,6 @@ df_er <- df_er %>%
 vec_desc <- get_descendants(ont_hpo, "HP:0000119")
 
 df_desc <- df_match1 %>%
-  # remove TSC patients, to see if association remains strong
-  filter(PatientId %nin% df_tsc$PatientID) %>%
   # filter cases by those containing descendant terms
   filter(term %in% vec_desc) %>%
   filter(group == TRUE) %>%
@@ -1021,5 +1023,52 @@ pqg <- as.ggplot(expression(plot(g2,
 
 pqg <- pqg + 
   theme(plot.margin = unit(c(-50, -20, -50, -50), "pt"))
+
+
+### EXPORT ---------------------------------------------------------------------
+p2_3 <- cowplot::plot_grid(p2, p3, ncol = 1, labels = "", align = "hv")
+pt1_2 <- cowplot::plot_grid(pt1, pt2, ncol = 1, labels = "", align = "hv")
+FigSx <- cowplot::plot_grid(p2_3, p4, pt1_2, nrow = 1, labels = c("AUTO"), align = "v", axis = "b")
+
+pdf(file = "FigSx.pdf",
+    width = 12,
+    height = 4)
+
+FigSx
+
+dev.off()
+
+FigSy <- cowplot::plot_grid(enrich1$forest +
+                              theme(plot.margin = margin(.5,0,.5,0, "cm")), # trbl
+                            pqg,
+                            enrich1$plot + 
+                              ggtitle("") + 
+                              theme_set(theme_classic()) +
+                              ylab("Frequency, likely genetic patient encounters") +
+                              xlab("Frequency, non-genetic patients encounters") +
+                              theme(plot.margin = margin(0,0,.5,0, "cm")),
+                            # rel_widths = c(0.4, .2, .4), 
+                            nrow = 1, labels = "AUTO", align = "none")
+
+pdf(file = "FigSy.pdf",
+    width = 12,
+    height = 4)
+
+FigSy
+
+dev.off()
+
+
+FigSz <- cowplot::plot_grid(pheat1 + theme(legend.position = "none"), 
+                           p_asm,
+                           nrow = 1, labels = "AUTO", align = "none")
+
+pdf(file = "FigSz.pdf",
+    width = 12,
+    height = 8)
+
+FigSz
+
+dev.off()
 
 
