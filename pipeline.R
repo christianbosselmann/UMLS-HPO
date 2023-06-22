@@ -272,7 +272,7 @@ p1$data %>%
 # add mean age at follow-up back to plot
 p1 <- p1 + 
   geom_vline(xintercept = stats_followup$mean, linetype = "dashed") +
-  geom_text(aes(x = stats_followup$mean, label = "\nMean: 8·18 years", y = 100),
+  geom_text(aes(x = stats_followup$mean, label = "\nMean: 8.18 years", y = 100),
             colour = "black", angle = 90, size = 4)
 
 ## p2: flat violin (raincloud) plot of age at encounter
@@ -782,7 +782,8 @@ df_conceptmatch <- df_conceptmatch %>%
   count(ConceptID) %>%
   pivot_wider(names_from = group, values_from = n) %>%
   rename(N = `FALSE`, Y = `TRUE`) %>%
-  replace(is.na(.), 0) %>%
+  mutate(Y = replace_na(Y, 0)) %>%
+  mutate(N = replace_na(N, 0)) %>%
   mutate(N_out = max(N)-N, Y_out = max(Y)-Y) %>%
   rowwise() %>%
   # do Fisher's test
@@ -1730,5 +1731,14 @@ icd_map <- read_table("icd10cm.txt", col_names = FALSE) %>%
 tbl_icd <- tbl_icd %>%
   mutate(ICD10Code = gsub("\\.", "", ICD10Code)) %>%
   left_join(icd_map) 
+
+### REPLICATION ANALYSIS -------------------------------------------------------
+## save hypotheses (test, p-value, OR estimate) for cross-sectional phenotypes,
+## longitudinal phenotypes, prescription data
+write_csv(enrich1$data, "rep_cross-sectional_group1.csv")
+write_csv(plong1f$plot$data, "rep_longitudinal_group1.csv")
+write_csv(df_heatmap, "rep_medical_group1.csv")
+
+
 
 

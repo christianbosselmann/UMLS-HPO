@@ -47,6 +47,9 @@ set.seed(42)
 # matching method for matchit
 flag_match <- "nearest"
 
+# color palette of analogous colours for the groups of the validity analysis
+pal_val <- c("#1B9E35", "#D90210")
+
 ### ONTOLOGY -------------------------------------------------------------------
 # load ontologyIndex object
 ont_hpo <- get_ontology("hp.obo.txt", 
@@ -171,8 +174,8 @@ p1 <- df %>%
   geom_linerange(size = 0.1) +
   ylab("Individuals") +
   xlab("Age at encounter (years)") +
-  scale_color_brewer(palette = "Dark2") +
-  scale_fill_brewer(palette = "Dark2") +
+  scale_color_manual(values = pal_val) +
+  scale_fill_manual(values = pal_val) +
   coord_cartesian(xlim = c(0, 35), expand = FALSE) +
   theme_classic() +
   theme(axis.ticks.y = element_blank(),
@@ -213,9 +216,9 @@ p1 <- p1 +
 p2 <- ggplot(data = df, aes(x = GENEPOS_comb, y = ContactAge, fill = GENEPOS_comb)) +
   geom_flat_violin(position = position_nudge(x = .1, y = 0), alpha = .8) +
   guides(fill = "none", color = "none") +
-  scale_color_brewer(palette = "Dark2") +
-  scale_fill_brewer(palette = "Dark2") +
-  scale_x_discrete(labels = c("Non-genetic", "Likely genetic")) +
+  scale_color_manual(values = pal_val) +
+  scale_fill_manual(values = pal_val) +
+  scale_x_discrete(labels = c("Non-genetic", "Confirmed genetic")) +
   xlab("") +
   ylab("Age at all encounters") +
   theme_classic() + 
@@ -229,9 +232,9 @@ p2 <- ggplot(data = df, aes(x = GENEPOS_comb, y = ContactAge, fill = GENEPOS_com
 p3 <- ggplot(data = df, aes(x = GENEPOS_comb, y = ProcAge, fill = GENEPOS_comb)) +
   geom_flat_violin(position = position_nudge(x = .1, y = 0), alpha = .8) +
   guides(fill = "none", color = "none") +
-  scale_color_brewer(palette = "Dark2") +
-  scale_fill_brewer(palette = "Dark2") +
-  scale_x_discrete(labels = c("Non-genetic", "Likely genetic")) +
+  scale_color_manual(values = pal_val) +
+  scale_fill_manual(values = pal_val) +
+  scale_x_discrete(labels = c("Non-genetic", "Confirmed genetic")) +
   xlab("") +
   ylab("Age at diagnosis") +
   theme_classic() + 
@@ -301,8 +304,8 @@ p4 <- df_encounters_freq %>%
   theme(legend.position = "none") +
   guides(fill = guide_legend(title = "Group"),
          color = guide_legend(title = "Group")) +
-  scale_color_brewer(palette = "Dark2") +
-  scale_fill_brewer(palette = "Dark2") +
+  scale_color_manual(values = pal_val) +
+  scale_fill_manual(values = pal_val) +
   coord_cartesian(xlim = c(0, 25), expand = FALSE) +
   ylab("Mean encounters per year") +
   xlab("Age (years)") +
@@ -340,8 +343,8 @@ p5 <- df_encounters_age %>%
   theme_classic() +
   guides(fill = guide_legend(title = "Group"),
          color = guide_legend(title = "Group")) +
-  scale_color_brewer(palette = "Dark2") +
-  scale_fill_brewer(palette = "Dark2") +
+  scale_color_manual(values = pal_val) +
+  scale_fill_manual(values = pal_val) +
   coord_cartesian(xlim = c(0, 25), expand = FALSE) +
   ylab("Mean concepts per encounter") +
   xlab("Age (years)")
@@ -435,7 +438,7 @@ pheat1 <- plong1f$plot$data %>%
   mutate(odds = ifelse(pvalue > 0.05, NA, odds)) %>%
   # set facet groups
   mutate(fct_group = case_when(
-    term %in% vec_caseterms ~ "Likely genetic",
+    term %in% vec_caseterms ~ "Confirmed genetic",
     term %in% vec_controlterms ~ "Non-genetic")) %>%
   # set description factor levels
   mutate(description = as.factor(description)) %>%
@@ -611,7 +614,7 @@ p_asm <- df_heatmap %>%
                        limits = c(-2, 2),
                        oob = scales::oob_squish_any)
 
-## subanalysis: do likely genetic patients receive more ASMs?
+## subanalysis: do Confirmed genetic patients receive more ASMs?
 df_med_sub <- df_med %>%
   filter(PatientId %in% df_match1$PatientId) %>%
   left_join(df_match1[ ,c("PatientId", "group")]) %>%
@@ -629,7 +632,7 @@ p_med_sub <- df_med_sub %>%
   ungroup() %>% 
   summarize(pval = t.test(asm ~ group)$p.value)
 
-## subanalysis: Do likely genetic patients receive more rescue medication?
+## subanalysis: Do Confirmed genetic patients receive more rescue medication?
 df_med_resc <- df_med_sub %>%
   mutate(isRescue = if_else(MED_NAME %in% c("lorazepam", "clonazepam", "clobazam", "diazepam", "midazolam"), T, F))
 
@@ -763,7 +766,7 @@ p_forest_nonhpo <- df_conceptmatch %>%
   xlab("Odds ratio (95% CI, log scale)")
 
 ### TRANSITION ANALYSIS --------------------------------------------------------
-# find what drives the increase in encounters for likely genetic
+# find what drives the increase in encounters for Confirmed genetic
 # patients during the transition to adult care (ages 18-20 years)
 
 ## get data
@@ -837,7 +840,7 @@ pt1 <- df_trans %>%
   slice_max(order_by = Y, n = 4, with_ties = FALSE) %>%
   ggplot(aes(y = reorder(ConceptDesc, OR))) +
   geom_linerange(aes(xmin = CI1, xmax = CI2)) +
-  geom_point(aes(x = OR), shape = 15, size = 3, color = "#d95f02") +
+  geom_point(aes(x = OR), shape = 15, size = 3, color = pal_val[[2]]) +
   geom_vline(xintercept = 1, linetype = "dashed") +
   scale_x_continuous(trans = 'log10',
                      limits = c(1, 35),
@@ -874,7 +877,7 @@ pt2 <- df_trans %>%
   slice_max(order_by = Y, n = 4, with_ties = FALSE) %>%
   ggplot(aes(y = reorder(ConceptDesc, OR))) +
   geom_linerange(aes(xmin = CI1, xmax = CI2)) +
-  geom_point(aes(x = OR), shape = 15, size = 3, color = "#1b9e77") +
+  geom_point(aes(x = OR), shape = 15, size = 3, color = pal_val[[1]]) +
   geom_vline(xintercept = 1, linetype = "dashed") +
   scale_x_continuous(trans = 'log10',
                      limits = c(1, 35),
@@ -905,7 +908,7 @@ df_inpatient <- df_nstays %>%
   filter(ORD_MODE_DESC == "INPATIENT" & n > 1) %>%
   mutate(hasInpatient = TRUE)
 
-# stats: are likely genetic patients more likely to be seen inpatient?
+# stats: are Confirmed genetic patients more likely to be seen inpatient?
 map_match <- df_match1 %>%
   distinct(PatientId, group)
 
@@ -1004,7 +1007,7 @@ g2 <- as.igraph(graph_hpo)
 V(g2)$label <- NA
 V(g2)[vec_min]$label <- rep(LETTERS)[1:length(V(g2)[vec_min]$label)]
 V(g2)$color <- "gray"
-V(g2)[vec_min]$color <- "red"
+V(g2)[vec_min]$color <- pal_val[[2]]
 V(g2)$size <- 8
 vec_size <- -log10(df_desc$pvalue)
 vec_size[vec_size < 7] <- 8
@@ -1042,9 +1045,10 @@ FigSy <- cowplot::plot_grid(enrich1$forest +
                               theme(plot.margin = margin(.5,0,.5,0, "cm")), # trbl
                             pqg,
                             enrich1$plot + 
+                              scale_color_manual(values = c(pal_val[[2]], "black")) +
                               ggtitle("") + 
                               theme_set(theme_classic()) +
-                              ylab("Frequency, likely genetic patient encounters") +
+                              ylab("Frequency, genetic patient encounters") +
                               xlab("Frequency, non-genetic patients encounters") +
                               theme(plot.margin = margin(0,0,.5,0, "cm")),
                             # rel_widths = c(0.4, .2, .4), 
@@ -1070,5 +1074,12 @@ pdf(file = "FigSz.pdf",
 FigSz
 
 dev.off()
+
+### REPLICATION ANALYSIS -------------------------------------------------------
+## save hypotheses (test, p-value, OR estimate) for cross-sectional phenotypes,
+## longitudinal phenotypes, prescription data
+write_csv(enrich1$data, "rep_cross-sectional_group2.csv")
+write_csv(plong1f$plot$data, "rep_longitudinal_group2.csv")
+write_csv(df_heatmap, "rep_medical_group2.csv")
 
 

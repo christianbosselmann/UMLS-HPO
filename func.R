@@ -694,6 +694,7 @@ downsampleMatch <- function(df_match1, df,
 ### QQ-Plot and lambda value functions from https://slowkow.com/notes/ggplot2-qqplot/
 inflation <- function(ps) {
   chisq <- qchisq(1 - ps, 1)
+  chisq <- na.omit(chisq)
   lambda <- median(chisq) / qchisq(0.5, 1)
   lambda
 }
@@ -737,3 +738,24 @@ gg_qqplot <- function(ps, ci = 0.95) {
     xlab(log10Pe) +
     ylab(log10Po)
 }
+
+# get 95% for a given OR
+getCI <- function(input){
+  concept_odds <- data.frame(OR = 1:nrow(input),
+                             CI1 = 1:nrow(input),
+                             CI2 = 1:nrow(input))
+  for(i in 1:nrow(input)){
+    row <- input[i, ] %>%
+      ungroup() %>%
+      select(Y, Y_out, N, N_out) %>%
+      data.matrix()
+    mat <- matrix(data = row, nrow=2)
+    fish <- fisher.test(mat)
+    concept_odds$OR[i] <- fish$estimate
+    concept_odds$CI1[i] <- fish$conf.int[[1]] # lower bound
+    concept_odds$CI2[i] <- fish$conf.int[[2]] # upper bound
+  }
+  res <- cbind(input, concept_odds)
+  return(res)
+}
+
