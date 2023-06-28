@@ -159,6 +159,24 @@ df_match1 <- df_match1 %>%
 df <- df %>%
   filter(PatientId %in% df_match1$PatientId)
 
+### DEMOGRAPHICS ---------------------------------------------------------------
+tbl_person <- df_person %>%  
+  filter(PatientId %in% df_match1$PatientId) %>%
+  mutate(Gender = recode(Gender, 
+                         "C0086582" = "Male",
+                         "C0086287" = "Female")) %>%
+  mutate(Ethnicity = recode(Ethnicity, 
+                            "C1518424" = "Not Hispanic or Latino",
+                            "C1549625" = "Unknown",
+                            "C5441846" = "Hispanic or Latino",
+                            "None" = "Unknown")) %>% 
+  summary_factorlist(dependent = "GENEPOS_comb", 
+                     explanatory = c("Gender", "Ethnicity", "ProcAge", 
+                                     "min_age", "median_age", "max_age"),
+                     p = TRUE, na_include = TRUE)  %>%
+  knitr::kable("html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE) 
+
 ### VALIDITY ANALYSIS ----------------------------------------------------------
 # repeat key analysis for this stricter case-control subset, cf. pipeline.R
 

@@ -11,6 +11,10 @@
 ### ----------------------------------------------------------------------------
 # this script analyzes the reproducibility of associations and their effect size between the two stages
 
+### HEADER ---------------------------------------------------------------------
+# gray-red 2-color palette
+pal_rep <- c("#71706e", "#f01313")
+
 ### DATA -----------------------------------------------------------------------
 ## hypotheses for cross-sectional clinical characteristics, longitudinal
 ## clinical characteristics, and prescription patterns
@@ -101,8 +105,9 @@ ls_cs_p <- ls_cs_dfp %>%
   geom_point() +
   scale_x_continuous(limits = c(-.4, .4)) +
   scale_y_continuous(limits = c(-.4, .4)) +
+  scale_color_manual(values = pal_rep) +
+  theme_classic() +
   theme(legend.position = "none") +
-  scale_color_brewer(palette = "Set1") +
   coord_fixed() +
   xlab("Stage 1 Effect Size\nCross-sectional phenotype") +
   ylab("Stage 2 Effect Size\nCross-sectional phenotype") +
@@ -112,7 +117,7 @@ ls_cs_p <- ls_cs_dfp %>%
            label.npc.y = 0.01, 
            label.x.npc = 0.01)
 
-ls_cs_p <- ggMarginal(ls_cs_p, 
+ls_cs_p <- ggExtra::ggMarginal(ls_cs_p, 
                       type = "histogram",
                       groupFill = TRUE,
                       groupColour = TRUE)
@@ -194,8 +199,9 @@ ls_lg_p <- ls_lg_dfp %>%
   geom_point() +
   scale_x_continuous(limits = c(-.4, .4)) +
   scale_y_continuous(limits = c(-.4, .4)) +
+  scale_color_manual(values = pal_rep) +
+  theme_classic() +
   theme(legend.position = "none") +
-  scale_color_brewer(palette = "Set1") +
   coord_fixed() +
   xlab("Stage 1 Effect Size\nLongitudinal phenotype") +
   ylab("Stage 2 Effect Size\nLongitudinal phenotype") +
@@ -205,7 +211,7 @@ ls_lg_p <- ls_lg_dfp %>%
            label.npc.y = 0.01, 
            label.x.npc = 0.01)
 
-ls_lg_p <- ggMarginal(ls_lg_p, 
+ls_lg_p <- ggExtra::ggMarginal(ls_lg_p, 
                       type = "histogram",
                       groupFill = TRUE,
                       groupColour = TRUE)
@@ -291,9 +297,9 @@ ls_md_p <- ls_md_dfp %>%
   geom_point() +
   scale_x_continuous(limits = c(-.4, .4)) +
   scale_y_continuous(limits = c(-.4, .4)) +
+  theme_classic() +
   theme(legend.position = c(.8, .2)) +
-  scale_color_brewer(palette = "Set1", 
-                     
+  scale_color_manual(values = pal_rep, 
                      labels = c("P > 0.05", "P < 0.05"), "") +
   coord_fixed() +
   xlab("Stage 1 Effect Size\nMedical treatment") +
@@ -307,7 +313,7 @@ ls_md_p <- ls_md_dfp %>%
                                                   alpha = 0,
                                                   shape = c(10, 10))))
 
-ls_md_p <- ggMarginal(ls_md_p, 
+ls_md_p <- ggExtra::ggMarginal(ls_md_p, 
                       type = "histogram",
                       groupFill = TRUE,
                       groupColour = TRUE)
