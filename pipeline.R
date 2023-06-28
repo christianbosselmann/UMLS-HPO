@@ -91,7 +91,8 @@ df <- df_raw %>%
   ) %>%
   group_by(PatientId) %>%
   arrange(desc(ContactAge)) %>%
-  # missing data imputation
+  # missing data imputation; data is not strictly 'missing' but some date annotations
+  # are only stored for ProcedureAges, depending on concept class
   fill(ContactAge, .direction = c("up")) %>%
   na.omit
 
@@ -104,7 +105,7 @@ df_genes <- df_raw %>%
   select(PatientId, ConceptID, GENEPOS_comb, ContactAge, ProcAge, cdkl5, scn1a, tsc) %>%
   group_by(PatientId) %>%
   arrange(desc(ContactAge)) %>%
-  # missing data imputation
+  # missing data imputation; see above.
   fill(ContactAge, .direction = c("up")) %>%
   na.omit %>%
   # merging group columns, descriptive labels
@@ -181,7 +182,7 @@ df_match1 <- df_match1 %>%
   rename(group = status) %>%
   mutate(group = as.logical(group))
 
-## Group: SCN1A vs. CDKL5
+## Group: SCN1A vs. CDKL5; not currently used
 df_match8 <- df_match %>%
   filter(status %in% c("scn1a", "cdkl5")) %>%
   mutate(status = recode(status, 
@@ -1041,6 +1042,8 @@ p_surv <- survminer::ggsurvplot(km_fit, data = df_surv,
                                 legend.labs = c("Non-genetic", "Likely genetic"),
                                 palette = "Dark2") 
 
+# mortality analysis is underpowered due to low event rate
+
 ### INPATIENT / OUTPATIENT STATS -----------------------------------------------
 ## data: use prescription and admission data to find inpatient/outpatient encounters
 df_stays <- df_med %>%
@@ -1101,13 +1104,10 @@ df_util <- df_util %>%
   left_join(map_match)
 
 # get count of unique specialty descriptions per patient
-# TODO: use number of unique specialties seen for PheIndex score instead of current assumption
 stats_util <- df_util %>%
   group_by(PatientId) %>%
   distinct(PatientId, group, SPECIALTY_DESC) %>%
   count()
-
-# idea: we could look at ENC_TYPE_DESC between groups and during 2019-2022 vs before. Telehealth during COVID?
 
 ### ER VISITS -----------------------------------------------------------------
 ## data: ER admissions for all patients
@@ -1539,198 +1539,6 @@ pdf(file = "FigS2.pdf",
 FigS2
 
 dev.off()
-
-### CHART REVIEW --------------------------------------------------------------
-# pull patient MRNs for manual chart review
-df_match1 %>%
-  filter(term == "HP:0000083") %>% # renal insufficiency
-  distinct(PatientId) %>%
-  left_join(mrn_map) %>%
-  write_csv("/Users/cbosselmann/Desktop/hp_0000083.csv")
-
-df_match1 %>%
-  filter(term == "HP:0004383") %>% # hypoplastic left heart syndrome
-  distinct(PatientId) %>%
-  left_join(mrn_map) %>%
-  write_csv("/Users/cbosselmann/Desktop/hp_0004383.csv")
-
-df_match1 %>%
-  filter(term == "HP:0000028") %>% # cryptorchidism
-  distinct(PatientId) %>%
-  left_join(mrn_map) %>%
-  write_csv("/Users/cbosselmann/Desktop/hp_0000028.csv")
-
-df_match1 %>%
-  filter(term == "HP:0000047") %>% # hypospadia
-  distinct(PatientId) %>%
-  left_join(mrn_map) %>%
-  write_csv("/Users/cbosselmann/Desktop/hp_0000047.csv")
-
-df_match1 %>%
-  filter(term == "HP:0000939") %>% # osteoporosis
-  distinct(PatientId) %>%
-  left_join(mrn_map) %>%
-  write_csv("/Users/cbosselmann/Desktop/hp_0000939.csv")
-
-### MISC ----------------------------------------------------------------------
-## get the number of SCN1A patients in the cohort and their mean follow-up
-tmp_scn1a <- df_scn1a %>%
-  rename(MedicalRecordNumber = PAT_MRN_ID) %>%
-  left_join(mrn_map)
-
-tmp_scn1a_fu <- p1$data %>%
-  filter(PatientId %in% tmp_scn1a$PatientId) %>%
-  mutate(dur = upper-lower) %>%
-  summarize(mean = mean(dur), median = median(dur),
-            sd = sd(dur), min = min(dur), max = max(dur),
-            iqr = IQR(dur))
-
-# get number of individual gene patients in cohort
-df_match1 %>%
-  distinct(PatientId) %>%
-  left_join(mrn_map) %>%
-  # filter(PatientId %in% df_scn1a$PatientID) %>%
-  # filter(MedicalRecordNumber %in% df_cdkl5$MRN) %>%
-  filter(MedicalRecordNumber %in% df_scn1a$PAT_MRN_ID) %>%
-  count()
-
-# follow-up stats for matched cohort
-stats_followup2 <- p1$data %>%
-  filter(PatientId %in% df_match1$PatientId) %>%
-  mutate(dur = upper-lower) %>%
-  summarize(sum(dur))
-
-# average number of encounters per patient
-df_match1 %>%
-  distinct(PatientId, ContactAge) %>%
-  group_by(PatientId) %>%
-  count() %>%
-  ungroup() %>%
-  summarize(mean = mean(n), median = median(n), sd = sd(n), min = min(n), max = max(n))
-
-# average UMLS concepts per patient
-df_match1 %>%
-  distinct(PatientId, ConceptID) %>%
-  group_by(PatientId) %>%
-  count() %>%
-  ungroup() %>%
-  summarize(mean = mean(n), sd = sd(n), min = min(n), max = max(n))
-
-# average HPO terms per patient
-df_match1 %>%
-  distinct(PatientId, term) %>%
-  group_by(PatientId) %>%
-  count() %>%
-  ungroup() %>%
-  summarize(mean = mean(n), sd = sd(n), min = min(n), max = max(n))
-
-# add OR 95% CI for text
-# usage: getCI(enrich1$data) %>% filter(description %like% "TERM")
-getCI <- function(input){
-  concept_odds <- data.frame(OR = 1:nrow(input),
-                             CI1 = 1:nrow(input),
-                             CI2 = 1:nrow(input))
-  for(i in 1:nrow(input)){
-    row <- input[i, ] %>%
-      ungroup() %>%
-      select(Y, Y_out, N, N_out) %>%
-      data.matrix()
-    mat <- matrix(data = row, nrow=2)
-    fish <- fisher.test(mat)
-    concept_odds$OR[i] <- fish$estimate
-    concept_odds$CI1[i] <- fish$conf.int[[1]] # lower bound
-    concept_odds$CI2[i] <- fish$conf.int[[2]] # upper bound
-  }
-  res <- cbind(input, concept_odds)
-  return(res)
-}
-
-## DL analysis 08/03/2023
-# wants to see group differences between non-mapped terms in a list provided by Mark
-tmp_xl <- readxl::read_excel("~/Desktop/EpilepsyHPO Mappings.xlsx", sheet = 2)
-tmp_xl$ConceptID
-
-# find non-hpo analysis output for these concepts
-df_conceptmatch %>%
-  filter(ConceptID %in% tmp_xl$ConceptID) %>%
-  left_join(tmp_xl[ ,c("ConceptID", "ConceptDescription")]) %>%
-  write_csv("~/Desktop/nonhpo_2023-03-08.csv")
-
-## Flowchart of study population
-librarian::shelf(DiagrammeR,
-                 DiagrammeRsvg,
-                 rsvg)
-options(OutDec = ".")
-p_flowchart <- grViz("digraph flowchart {
-      node [fontname = Helvetica, shape = rectangle]        
-      tab1 [label = '@@1']
-      tab2 [label = '@@2']
-      tab3 [label = '@@3']
-      tab4 [label = '@@4']
-      tab5 [label = '@@5']
-      tab6 [label = '@@6']
-      m1 [label = '@@7']
-      m2 [label = '@@8']
-      
-      node [shape=none, width=0, height=0, label='']
-      p1;
-      {rank=same; p1,m1}
-      {rank=same; m2,p1}
-
-      # edge definitions with the node IDs
-      tab1 -> tab2;
-      tab2 -> tab3;
-      tab3 -> tab4;
-      tab4 -> tab5;
-      p1 -> tab6;
-      p1 -> m1;
-      
-      edge [dir=none]
-      tab5 -> p1;
-      
-      edge [dir=back]
-      m2 -> p1
-      }
-
-      [1]: 'Any ICD-10 G40- for Epilepsy \\n n = 0000'
-      [2]: 'Any procedural code (CPT) for EEG \\n n = 0000'
-      [3]: 'Age 0-5 years at diagnosis \\n n = 0000'
-      [4]: 'Participants eligible for stratification \\n n = 1671'
-      [5]: 'Likely genetic patients n = 274 \\n Not likely genetic patients n = 1397'
-      [6]: 'Study cohort \\n n = 503'
-      [7]: 'Missing data \\n n = 25'
-      [8]: 'Total lost to matching \\n n = 1168'
-      ")
-
-p_flowchart %>%
-  export_svg %>% 
-  charToRaw %>% 
-  rsvg_pdf("studyflowchart.pdf")
-
-## ICD-10 statistics for cases and controls
-# define list of ICD codes of interest (i.e. epilepsy-related) as patterns
-tbl_icd <- df_raw %>%
-  filter(PatientId %in% df_match1$PatientId) %>%
-  distinct(PatientId, ICD10Code) %>%
-  filter(ICD10Code %like% "R56" | # febrile seizures and other convulsions
-           ICD10Code %like% "G40" | # epilepsy
-           ICD10Code %like% "F84") %>% # pervasive and specific developmental disorders
-  left_join(df_match1[ ,c("PatientId", "group")], by = "PatientId") %>%
-  distinct(PatientId, ICD10Code, group) %>%
-  group_by(ICD10Code, group) %>%
-  summarize(n = n_distinct(PatientId)) %>%
-  arrange(desc(n)) %>%
-  pivot_wider(names_from = "group", values_from = "n") %>%
-  replace(is.na(.), 0) %>%
-  arrange(desc(`TRUE`), desc(`FALSE`))
-
-# get map
-icd_map <- read_table("icd10cm.txt", col_names = FALSE) %>%
-  rename(ICD10Code = X1, description = X2)
-
-tbl_icd <- tbl_icd %>%
-  mutate(ICD10Code = gsub("\\.", "", ICD10Code)) %>%
-  left_join(icd_map) 
 
 ### REPLICATION ANALYSIS -------------------------------------------------------
 ## save hypotheses (test, p-value, OR estimate) for cross-sectional phenotypes,

@@ -349,7 +349,7 @@ preprocessVariables <- function(vars,
   return(vars)
 }
 
-# Fisher's test function from Sara
+# Fisher's test function
 fish_test_it <- function(g1,g1_out,g2,g2_out,label){
   pvalue <- c()
   odds <- c()
@@ -437,7 +437,7 @@ GeomFlatViolin <-
           required_aes = c("x", "y")
   )
 
-#' Plot function for p-value of HPO terms over age, for 01-genetics.R
+#' Plot function for p-value of HPO terms over age
 #' @param df_genes df with cols PatientId, ConceptID, ContactAge, ProcAge, status
 #' @param df_match1 df subset after matching procedure with column group for cohort membership
 #' @param show_legend ggplot2 legend.position, allowed are: “left”, “top”, “right”, “bottom”.

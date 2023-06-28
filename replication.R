@@ -1,5 +1,5 @@
 ### UMLS-HPO ANALYSIS OF INDIVIDUALS WITH GENETIC EPILEPSY SYNDROMES -----------
-## Replication
+## Statistical analysis of reproducibility
 ##
 ## Author: Christian Bosselmann, MD
 ##
@@ -9,10 +9,9 @@
 ## Email: bosselc@ccf.org
 ##
 ### ----------------------------------------------------------------------------
-# this script analyzes the reproducibility of associations and their effect size between the two stages
 
 ### HEADER ---------------------------------------------------------------------
-# gray-red 2-color palette
+# define gray-red 2-color palette
 pal_rep <- c("#71706e", "#f01313")
 
 ### DATA -----------------------------------------------------------------------
@@ -45,7 +44,7 @@ n_cs_t1_2 <- intersect(ls_cs_t1[ls_cs_t1$group == "1", -1], ls_cs_t1[ls_cs_t1$gr
   nrow()
 
 ## T2: Median original and replication effect sizes
-# convert effect size to r (which is 0,1 bounded and nicely interpretable)
+# convert effect size to r (which is {0,1} bounded and nicely interpretable)
 # cf. https://easystats.github.io/effectsize/reference/d_to_r.html
 ls_cs_t2 <- ls_cs %>%
   mutate(effect = effectsize::oddsratio_to_r(odds, Y, N)) %>%
@@ -95,7 +94,6 @@ stats_cs_t3 <- nrow(ls_cs_t3[ls_cs_t3$is_within == "TRUE", ])/nrow(ls_cs_t3[ls_c
 ls_cs_dfp <- ls_cs_t2 %>%
   select(term, group, effect) %>%
   pivot_wider(names_from = "group", values_from = "effect") %>%
-  # keep p-value
   left_join(ls_cs_t3[ls_cs_t3$group == "1", ][ ,c("term", "pvalue")]) %>%
   mutate(is_sig = ifelse(pvalue < 0.05, 1, 0)) %>%
   mutate(is_sig = as.factor(is_sig))

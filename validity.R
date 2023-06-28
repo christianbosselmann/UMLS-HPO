@@ -1,5 +1,5 @@
 ### UMLS-HPO ANALYSIS OF INDIVIDUALS WITH GENETIC EPILEPSY SYNDROMES -----------
-## Validity analysis
+## Validation cohort
 ##
 ## Author: Christian Bosselmann, MD
 ##
