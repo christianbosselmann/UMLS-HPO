@@ -74,12 +74,12 @@ prop_map <- ont_hpo$ancestors %>%
 
 ### DATA ----------------------------------------------------------------------
 # data: all encounters per patient, ages 0-6, grouped by gene positive / negative
-df_raw <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/longitudinal_genetic.csv")
+df_raw <- read_csv("~/PATH/data/longitudinal_genetic.csv")
 
 # data: list of MRNs per patient subgroup
-df_cdkl5 <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/cdkl5_genetic.csv")
-df_scn1a <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/scn1a_genetic.csv")
-df_tsc <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/tsc_genetic.csv")
+df_cdkl5 <- read_csv("~/PATH/data/cdkl5_genetic.csv")
+df_scn1a <- read_csv("~/PATH/data/scn1a_genetic.csv")
+df_tsc <- read_csv("~/PATH/data/tsc_genetic.csv")
 
 # preprocessing: all
 df <- df_raw %>% 
@@ -105,7 +105,7 @@ df_genes <- df_raw %>%
   select(PatientId, ConceptID, GENEPOS_comb, ContactAge, ProcAge, cdkl5, scn1a, tsc) %>%
   group_by(PatientId) %>%
   arrange(desc(ContactAge)) %>%
-  # missing data imputation; see above.
+  # missing data imputation; see above; see previous comments
   fill(ContactAge, .direction = c("up")) %>%
   na.omit %>%
   # merging group columns, descriptive labels
@@ -171,28 +171,6 @@ df_match1 <- match.data(df_match1)
 df_match1 <- downsampleMatch(df_match1, df)
 
 df_match1 <- df_match1 %>%
-  left_join(hpo_map, by = "ConceptID") %>%
-  rename(term = name) %>%
-  left_join(prop_map, by = "term") %>%
-  select(-term) %>%
-  rename(term = prop_terms) %>%
-  na.omit %>%
-  unnest(cols = c(term)) %>%
-  # recode for later enrichment plots
-  rename(group = status) %>%
-  mutate(group = as.logical(group))
-
-## Group: SCN1A vs. CDKL5; not currently used
-df_match8 <- df_match %>%
-  filter(status %in% c("scn1a", "cdkl5")) %>%
-  mutate(status = recode(status, 
-                         "cdkl5" = 0,
-                         "scn1a" = 1)) 
-
-df_match8 <- df_match8 %>%
-  # # merge in ConceptIDs
-  left_join(df[ ,c("PatientId", "ConceptID")], by = "PatientId") %>%
-  # merge in propagated HPO terms
   left_join(hpo_map, by = "ConceptID") %>%
   rename(term = name) %>%
   left_join(prop_map, by = "term") %>%
@@ -430,29 +408,13 @@ enrich1$plot <- enrich1$plot +
   ggtitle("Genetic vs. Non-Genetic") +
   theme(plot.title = element_text(hjust = 0.5, size = 18))
 
-## Group: SCN1A vs. CDKL5
-enrich8 <- df_match8 %>%
-  enrichmentPlot(., ont_hpo, forest = TRUE)
-
-# manual labels
-enrich8$plot$data$expcat_text <- NA
-enrich8$plot$data[enrich8$plot$data$description == "Arrhythmia", ]$expcat_text <- "Arrhythmia"
-enrich8$plot$data[enrich8$plot$data$description == "Abnormality of movement", ]$expcat_text <- "Abnormality of movement"
-enrich8$plot$data[enrich8$plot$data$description == "Infection-related seizure", ]$expcat_text <- "Infection-related seizure"
-enrich8$plot$data[enrich8$plot$data$description == "Abnormality of the immune system", ]$expcat_text <- "Abnormality of the immune system"
-
-enrich8$plot <- enrich8$plot +
-  coord_fixed(xlim = c(0, .3), ylim = c(0, .3)) +
-  ggtitle("SCN1A vs. CDKL5") +
-  theme(plot.title = element_text(hjust = 0.5, size = 18))
-
 ### LONGITUDINAL ANALYSIS -----------------------------------------------------
 plong1f <- longitudinalPlot(df_genes, df_match1, odds_plot = TRUE, filter = FALSE)
 
 # set legend expression (for subscript)
 str_legend <- expression(log['10']*(OR))
 
-# set case terms
+# set case terms to display
 vec_caseterms <- c("HP:0000708", # behav. abnormality
                    "HP:0002719", # recurrent infections
                    "HP:0002311", # incoordination
@@ -466,7 +428,7 @@ vec_caseterms <- c("HP:0000708", # behav. abnormality
                    "HP:0002098", # respiratory distress
                    "HP:0000083") # renal insufficiency
 
-# set control terms
+# set control terms to display
 vec_controlterms <- c("HP:0025234", # parasomnia
                       "HP:0001287", # meningitis
                       "HP:0001342", # cerebral hemorrhage
@@ -551,17 +513,17 @@ pheat1 <- plong1f$plot$data %>%
 ### MEDICATION ANALYSIS -------------------------------------------------------
 ## Data and Preprocessing
 # load data: list of patient medical record IDs and prescriptions
-df_asm <-  readxl::read_excel("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/Medication_history.xlsx") %>%
+df_asm <-  readxl::read_excel("~/PATH/data/Medication_history.xlsx") %>%
   filter(MED_PHARM_CLASS_DESC %like% "ANTICONVULSANT")
 
 # load data: FDA NDC database
-df_fda <- readxl::read_excel("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/ndcxls.xlsx")
+df_fda <- readxl::read_excel("~/PATH/data/ndcxls.xlsx")
 df_fda <- df_fda[df_fda$PHARM_CLASSES %like% "epilept", ] %>%
   distinct(PROPRIETARYNAME, NONPROPRIETARYNAME)
 
 # source: AES Summary of Antiseizure Medications Available in the United States: 2020 Update
 # https://www.aesnet.org/docs/default-source/pdfs-clinical/2020-september-aes_summary_of_asms.pdf?sfvrsn=c1a0ed0b_2
-asm_vec <- readxl::read_excel("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/ASM list.xlsx", col_names = FALSE) %>%
+asm_vec <- readxl::read_excel("~/PATH/data/ASM list.xlsx", col_names = FALSE) %>%
   pull()
 
 # match by AES and FDA lookup tables
@@ -632,7 +594,7 @@ df_heatmap <- df_match1 %>%
   # force complete all cases
   complete(MED_NAME, YearsPrescription) %>%
   replace(is.na(.), 0) %>%
-  mutate(N_out = max(N)-N, 
+  mutate(N_out = max(N)-N, # max value is equal to sample size due to ontology str
          Y_out = max(Y)-Y) %>%
   rowwise() %>%
   # do Fisher's test
@@ -648,7 +610,7 @@ df_heatmap <- df_match1 %>%
   left_join(asm_map, by = "MED_NAME") %>%
   # define factor levels
   mutate(MED_NAME = factor(MED_NAME, levels = sort(unique(asm_vec)))) %>%
-  # # frequency filter
+  # # frequency filter; optional
   # ungroup() %>%
   # mutate(freqY = Y/max(Y)) %>%
   # mutate(freqN = N/max(N)) %>%
@@ -734,7 +696,7 @@ p_med_resc <- df_med_resc %>%
 ## data
 # load UMLS concepts
 # source: nlm.nih.gov/research/umls/
-umls_map <- read.delim("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/MRCONSO.RRF",
+umls_map <- read.delim("~/PATH/data/MRCONSO.RRF",
                        sep = "|", header = FALSE)
 
 umls_map <- umls_map %>%
@@ -785,7 +747,7 @@ df_conceptmatch <- df_conceptmatch %>%
   rename(N = `FALSE`, Y = `TRUE`) %>%
   mutate(Y = replace_na(Y, 0)) %>%
   mutate(N = replace_na(N, 0)) %>%
-  mutate(N_out = max(N)-N, Y_out = max(Y)-Y) %>%
+  mutate(N_out = max(N)-N, Y_out = max(Y)-Y) %>% # likewise, max group value matches sample size due to ontology str
   rowwise() %>%
   # do Fisher's test
   mutate(P = fisher.test(matrix(c(Y, Y_out, N, N_out), nrow = 2, ncol = 2))$p.value,
@@ -863,7 +825,7 @@ df_trans <- df_trans %>%
   pivot_wider(names_from = age_group, values_from = n) %>%
   rename(N = `0`, Y = `1`) %>%
   replace(is.na(.), 0) %>%
-  mutate(N_out = max(N)-N, Y_out = max(Y)-Y) %>%
+  mutate(N_out = max(N)-N, Y_out = max(Y)-Y) %>% # see above
   rowwise() %>%
   # do Fisher's test
   mutate(P = fisher.test(matrix(c(Y, Y_out, N, N_out), nrow = 2, ncol = 2))$p.value,
@@ -963,87 +925,6 @@ pt <- cowplot::plot_grid(pt1 + theme(axis.title.x = element_blank()),
                          pt2, 
                          ncol = 1, align = "v")
 
-### MORTALITY ------------------------------------------------------------------
-## data
-df_deaths <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/Deathdates.csv",
-                      col_names = c("MedicalRecordNumber", "Status", "DateOfDeath"))
-
-# map to PatientId
-mrn_map <- df_raw %>% distinct(PatientId, MedicalRecordNumber)
-
-df_deaths <- df_deaths %>%
-  left_join(mrn_map, by = "MedicalRecordNumber")
-
-# get age at death
-dob_map <- df_raw %>% distinct(PatientId, DateOfBirth)
-
-df_deaths <- df_deaths %>%
-  left_join(dob_map, by = "PatientId")
-
-df_deaths <- df_deaths %>%
-  mutate(DateOfBirth = as.Date(DateOfBirth, format = "%m/%d/%y")) %>%
-  mutate(DateOfDeath = as.Date(DateOfDeath, format = "%m/%d/%Y")) %>%
-  mutate(AgeAtDeath = DateOfDeath - DateOfBirth)
-
-# add death dates to matched cohort; only keep distinct patient-death pairs
-df_death1 <- df_match1 %>%
-  left_join(df_deaths[ ,c("PatientId", "AgeAtDeath")], by = "PatientId")
-
-# change ContactAge to days for survival analysis
-df_death1 <- df_death1 %>%
-  mutate(ContactAge = ContactAge*365)
-
-# filter by individuals with at least two years of follow-up available
-df_hasfollowup <- p1$data %>%
-  mutate(dur = upper-lower) %>%
-  filter(dur > 1) %>%
-  distinct(PatientId)
-
-df_death1 <- df_death1 %>%
-  filter(PatientId %in% df_hasfollowup$PatientId)
-
-# if a patient is deceased, set their age at last contact for the survival analysis
-df_death1 <- df_death1 %>%
-  mutate(isDead = if_else(!is.na(AgeAtDeath), 1, 0))
-
-df_surv <- df_death1 %>%
-  filter(isDead == 1) %>%
-  group_by(PatientId) %>%
-  slice_max(order_by = ContactAge, n = 1) %>%
-  mutate(survivalFlag = 1)
-
-df_surv <- left_join(df_death1, df_surv) %>%
-  mutate(survivalFlag = if_else(is.na(survivalFlag),0,1))
-
-# reduce to single encounters
-df_surv <- df_surv %>%
-  distinct(PatientId, group, ContactAge, survivalFlag)
-
-# preprocessing for suvival analysis
-df_surv <- df_surv %>%
-  mutate(group = as.integer(group)) %>%
-  mutate(ContactAge = as.numeric(ContactAge)/365)
-
-# for each patient, keep only their last known status
-df_surv <- df_surv %>%
-  group_by(PatientId) %>%
-  slice_max(order_by = ContactAge, n = 1)
-
-km_fit <- survfit(Surv(ContactAge, survivalFlag) ~ group, data = df_surv)
-
-p_surv <- survminer::ggsurvplot(km_fit, data = df_surv,
-                                pval = TRUE,
-                                risk.table = "nrisk_cumcensor",
-                                pval.coord = c(2, 0.55),
-                                ggtheme = theme(text=element_text(size=10)),
-                                xlab = c("Age (years)"),
-                                xlim = c(0, 25), ylim = c(0.50, 1.0),
-                                legend = c(0.8, 0.15),
-                                legend.labs = c("Non-genetic", "Likely genetic"),
-                                palette = "Dark2") 
-
-# mortality analysis is underpowered due to low event rate
-
 ### INPATIENT / OUTPATIENT STATS -----------------------------------------------
 ## data: use prescription and admission data to find inpatient/outpatient encounters
 df_stays <- df_med %>%
@@ -1078,40 +959,9 @@ stats_inpatient <- df_inpatient %>%
             min = min(n), max = max(n),
             n = n_distinct(PatientId))
 
-### UTILIZATION ANALYSIS -------------------------------------------------------
-## data: list of patient specialist encounters from Alina Ivaniuk, 2023-03-07
-df_util <- read_csv("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/encounter-info-epilepsy.csv")
-
-# subset by case-control cohort
-df_util <- df_util %>%
-  filter(PatientID %in% df_match1$PatientId)
-
-# get date of birth from df_lookup and calculate age at encounter
-df_util <- df_util %>%
-  rename(PatientId = PatientID) %>%
-  left_join(df_lookup[ ,c("PatientId", "DateOfBirth")], by = "PatientId") %>%
-  mutate(DateOfBirth = lubridate::mdy(DateOfBirth)) %>%
-  mutate(ENC_DT = lubridate::as_date(ENC_DT)) %>%
-  mutate(AgeAtEncounter = difftime(ENC_DT, DateOfBirth, units = "days")) %>%
-  mutate(MonthsEncounter = as.numeric(round(AgeAtEncounter/30, 0))) %>%
-  mutate(YearsEncounter = as.numeric(AgeAtEncounter/365.2425))
-
-# get group label
-map_match <- df_match1 %>%
-  distinct(PatientId, group)
-
-df_util <- df_util %>%
-  left_join(map_match)
-
-# get count of unique specialty descriptions per patient
-stats_util <- df_util %>%
-  group_by(PatientId) %>%
-  distinct(PatientId, group, SPECIALTY_DESC) %>%
-  count()
-
 ### ER VISITS -----------------------------------------------------------------
 ## data: ER admissions for all patients
-df_er <- readxl::read_excel("~/Desktop/CCF/EMR cohort study/Surgery cohort/data/ER_Visits.xlsx")
+df_er <- readxl::read_excel("~/PATH/data/ER_Visits.xlsx")
 
 # get group label
 df_er <- df_er %>%
@@ -1391,8 +1241,8 @@ p_pheindex_table <- ggplotify::as.ggplot(p_pheindex_grob)
 vec_desc <- get_descendants(ont_hpo, "HP:0000119")
 
 df_desc <- df_match1 %>%
-  # remove TSC patients, to see if association remains strong
-  filter(PatientId %nin% df_tsc$PatientID) %>%
+  ## remove TSC patients, to see if association remains strong; optional
+  # filter(PatientId %nin% df_tsc$PatientID) %>%
   # filter cases by those containing descendant terms
   filter(term %in% vec_desc) %>%
   filter(group == TRUE) %>%
@@ -1456,9 +1306,6 @@ pqg <- pqg +
   theme(plot.margin = unit(c(-50, -20, -50, -50), "pt"))
 
 ### GENERATE REPORT ------------------------------------------------------------
-# set global option of decimal point to midline for Lancet
-# options(OutDec = "·")
-
 ## Figure 1: Descriptive statistics of the study cohort.
 Fig1 <- cowplot::plot_grid(p1,
                            p2 + scale_x_discrete(labels=c("Non-genetic", "Likely genetic")),
@@ -1546,7 +1393,3 @@ dev.off()
 write_csv(enrich1$data, "rep_cross-sectional_group1.csv")
 write_csv(plong1f$plot$data, "rep_longitudinal_group1.csv")
 write_csv(df_heatmap, "rep_medical_group1.csv")
-
-
-
-
