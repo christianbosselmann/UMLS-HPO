@@ -1,0 +1,343 @@
+### UMLS-HPO ANALYSIS OF INDIVIDUALS WITH GENETIC EPILEPSY SYNDROMES -----------
+## Cost-based analysis
+##
+## Author: Christian Bosselmann, MD
+##
+## Date Created: 2023-10-11
+##
+## Copyright (c) Christian Bosselmann, 2023
+## Email: bosselc@ccf.org
+##
+### ----------------------------------------------------------------------------
+
+### HEADER ---------------------------------------------------------------------
+# packages
+library(librarian)
+librarian::shelf(tidyverse,
+                 ggrepel,
+                 ontologyIndex,
+                 data.table,
+                 MatchIt)
+
+# functions
+source("func.R")
+
+# lookup tables
+source("dict.R")
+
+# seed
+set.seed(42)
+
+### PARAMETERS ----------------------------------------------------------------
+# matching method for matchit
+flag_match <- "nearest"
+
+# color palette of analogous colours for the groups of the validity analysis
+pal_val <- c("#1B9E35", "#D90210")
+
+### ONTOLOGY -------------------------------------------------------------------
+# load ontologyIndex object
+ont_hpo <- get_ontology("hp.obo.txt", 
+                        propagate_relationships = "is_a", 
+                        extract_tags = "everything")
+
+# prepare UMLS-HPO map
+hpo_map <- lapply(ont_hpo$xref, function(x){
+  x <- x[x %like% "UMLS:"]
+  x <- sub('.*\\:', '', x)
+}) 
+
+hpo_map <- enframe(hpo_map) %>%
+  unnest(value) %>%
+  rename(ConceptID = value)
+
+# prepare HPO term description map
+desc_map <- tibble(term = ont_hpo$id,
+                   description = ont_hpo$name)
+
+# prepare propagation map
+prop_map <- ont_hpo$ancestors %>% 
+  enframe() %>%
+  rename(term = name, prop_terms = value)
+
+### DATA -----------------------------------------------------------------------
+# data: all encounters per patient, ages 0-6, grouped by gene positive / negative
+df_raw <- read_csv("/Volumes/CCF/EMR cohort study/Surgery cohort/data/longitudinal_genetic.csv") %>%
+  mutate(MedicalRecordNumber = as.character(MedicalRecordNumber))
+
+# by-patient demographic data and age statistics
+df_person <- df_raw %>%
+  group_by(PatientId, DateOfBirth, Gender, Ethnicity, GENEPOS, GENEPOS_comb, ProcAge) %>%
+  summarize(max_age = max(ContactAge, na.rm = TRUE),
+            min_age = min(ContactAge, na.rm = TRUE),
+            median_age = median(ContactAge, na.rm = TRUE))
+
+# preprocessing
+df <- df_raw %>% 
+  select(PatientId, MedicalRecordNumber, ConceptID, GENEPOS_comb, ContactAge, ProcAge) %>%
+  group_by(PatientId) %>%
+  arrange(desc(ContactAge)) %>%
+  fill(ContactAge, .direction = c("up")) %>%
+  na.omit
+
+# strict definition: controls also must have received genetic testing
+df_cpt <- read_csv("/Volumes/CCF/EMR cohort study/Surgery cohort/data/cpts_genetic_all_pts.csv")
+
+df_strict <- df %>%
+  filter(MedicalRecordNumber %in% df_cpt$PAT_MRN_ID | GENEPOS_comb == "Y")
+
+# strict case definition: exclude genetic individuals (cases) with VUS
+df_rev <- readxl::read_excel("/Volumes/CCF/EMR cohort study/Surgery cohort/data/chartreview_2023-04-28.xlsx")
+vec_rev <- df_rev %>% filter(is_genetic == FALSE) %>% pull(MedicalRecordNumber)
+
+df_strict <- df_strict %>%
+  filter(!MedicalRecordNumber %in% vec_rev)
+
+# flag case and control explicitly
+df_genes <- df_strict %>% mutate(status = ifelse(GENEPOS_comb == "N", 0,
+                                                 ifelse(GENEPOS_comb == "Y", 1, NA)))
+
+# define cohorts and match by age, sex and ethnicity; maintain label
+df_match <- df_genes %>%
+  left_join(df_person[,c("PatientId", "Gender", "Ethnicity", "median_age")], by = "PatientId") %>%
+  distinct(PatientId, Gender, Ethnicity, median_age, status)
+
+# do matching
+df_match <- matchit(status ~ median_age + Ethnicity + Gender, 
+                    data = df_match, ratio = 1,
+                    method = flag_match, distance = "glm")
+
+df_match1 <- match.data(df_match)
+
+df_match1 <- downsampleMatch(df_match1, df)
+
+df_match1 <- df_match1 %>%
+  left_join(hpo_map, by = "ConceptID") %>%
+  rename(term = name) %>%
+  left_join(prop_map, by = "term") %>%
+  select(-term) %>%
+  rename(term = prop_terms) %>%
+  na.omit %>%
+  unnest(cols = c(term)) %>%
+  # recode for later enrichment plots
+  rename(group = status) %>%
+  mutate(group = as.logical(group))
+
+# subset original dataframe to this strict cohort
+df <- df %>%
+  filter(PatientId %in% df_match1$PatientId)
+
+# data: longitudinal claims and claim amounts for 1335 patients in this study
+df_cl <- readxl::read_excel("/Volumes/CCF/EMR cohort study/Surgery cohort/data/epilepsy_claims_data.xlsx") %>%
+  mutate(AmountCharged = as.numeric(AmountCharged))
+
+# # eliminate duplicate entries
+# df_cl <- df_cl %>%
+#   distinct()
+
+# subset claims database to matched cohort
+df_cl <- df_cl %>%
+  filter(MedicalRecordNumber %in% df$MedicalRecordNumber) %>%
+  mutate(MedicalRecordNumber = as.character(MedicalRecordNumber))
+
+# annotate claims with genetic status (strict definition); drop patients without status
+df_cl <- df_cl %>%
+  left_join(df_genes[,c("MedicalRecordNumber", "status")] %>% distinct) %>%
+  drop_na(status)
+
+# annotate claims with DOB to get age at claim
+df_cl <- df_cl %>%
+  left_join(df_raw[,c("MedicalRecordNumber", "DateOfBirth")] %>% distinct)
+
+df_cl <- df_cl %>%
+  mutate(DateOfBirth = lubridate::mdy(DateOfBirth)) %>%
+  mutate(ClaimDate = lubridate::ymd(ClaimDate)) %>%
+  mutate(AgeAtClaim = difftime(ClaimDate, DateOfBirth, units = "d")) %>%
+  mutate(AgeAtClaim = as.numeric(AgeAtClaim)/365) %>%
+  drop_na(AgeAtClaim)
+
+# get MRNs of surgical patients
+df_surg <- read_csv("/Volumes/CCF/EMR/Surgery/surgery_type.csv") %>%
+  select(MedicalRecordNumber = CCF_ID)
+
+# drop surgical patients to reduce bias
+df_cl <- df_cl %>%
+  filter(!MedicalRecordNumber %in% df_surg$MedicalRecordNumber)
+
+# set factor
+df_cl <- df_cl %>%
+  mutate(status = as.factor(status)) 
+
+# preprocessing
+df_cl2 <- df_cl %>%
+  group_by(MedicalRecordNumber, status) %>%
+  mutate(n_claims = n(),
+         sum_claims = sum(AmountCharged, na.rm = T),
+         mean_claims = mean(AmountCharged, na.rm = T),
+         len_claims = difftime(max(ClaimDate, na.rm = T), min(ClaimDate, na.rm = T), 
+                               units = "d")) %>%
+  mutate(len_claims = as.numeric(len_claims))
+
+### EXPLORATORY ANALYSIS -------------------------------------------------------
+# stats
+df_cl2 %>%
+  group_by(status) %>%
+  summarize(mean = mean(AmountCharged),
+            median = median(AmountCharged), 
+            min = min(AmountCharged),
+            max = max(AmountCharged),
+            sd = sd(AmountCharged),
+            iqr = IQR(AmountCharged))
+
+# t-test
+df_cl2 %>%
+  ungroup() %>%
+  summarize(pval = t.test(AmountCharged ~ status)$p.value)
+
+df_cl2 %>%
+  ungroup() %>%
+  summarize(pval = wilcox.test(AmountCharged ~ status)$p.value)
+
+# linear regression on cost
+mod <- lm(AmountCharged ~ status + n_claims + len_claims, data = df_cl2)
+summary(mod)
+
+### VISUALIZATION --------------------------------------------------------------
+p1 <- df_cl2 %>%
+  ungroup() %>%
+  mutate(group_year = round(AgeAtClaim, digits = 1)) %>%
+  group_by(status, group_year) %>%
+  mutate(AmountCharged = median(AmountCharged, na.rm = TRUE)) %>%
+  distinct(status, group_year, AmountCharged, AgeAtClaim) %>%
+  ggplot(aes(x = AgeAtClaim, y = AmountCharged, group = status, color = status)) +
+  geom_point(alpha = .01) +
+  geom_smooth(method = "lm", se = TRUE) +
+  scale_y_continuous(trans = "log10", limits = c(200, 1000)) +
+  scale_x_continuous() +
+  scale_color_manual("Group", labels = c("Non-genetic", "Genetic"), values = pal_val) +
+  coord_cartesian(expand = F) +
+  theme_classic() +
+  ggpubr::stat_cor(method = "pearson",
+           geom = "label",
+           label.y.npc = 0.2,
+           label.x.npc = 0.01) +
+  xlab("Age (years)") +
+  ylab("Median cost ($)")
+
+p2 <- df_cl2 %>%
+  # differentiate between inpatient and outpatient cost
+  mutate(is_outpatient = ifelse(is.na(AdmissionDate), "Outpatient", "Inpatient")) %>%
+  # cross-sectional: median cost across all encounters
+  group_by(MedicalRecordNumber, status, is_outpatient) %>%
+  summarize(AmountCharged = median(AmountCharged)) %>%
+  # fix label
+  mutate(status = case_match(status,
+             "0" ~ "Non-genetic",
+             "1" ~ "Genetic")) %>%
+  # plot
+  ggplot(aes(x = status, y = AmountCharged, color = status)) +
+  geom_boxplot() +
+  ggpubr::geom_pwc(method = "wilcoxon",
+                   label = "p.signif") +
+  scale_y_continuous(trans = "log10", expand = expansion(mult = c(0, .1))) +
+  scale_color_manual(values = rev(pal_val)) +
+  theme_classic() +
+  theme(legend.position = "none",
+        strip.background = element_blank()) +
+  xlab("") +
+  ylab("Median cost ($)") +
+  facet_wrap(is_outpatient ~.)
+
+### FULL ANALYSIS --------------------------------------------------------------
+# bin by annual cost
+df_cl3 <- df_cl2 %>%
+  ungroup() %>%
+  mutate(tmp_yr = round(AgeAtClaim, digits = 0)) %>%
+  group_by(tmp_yr, MedicalRecordNumber) %>%
+  mutate(annual_claim = sum(AmountCharged)) %>%
+  distinct(MedicalRecordNumber, status, tmp_yr, annual_claim)
+
+p3 <- df_cl3 %>%
+  ggplot(aes(x = status, y = annual_claim, color = status)) +
+  geom_boxplot() +
+  ggpubr::geom_pwc(method = "wilcoxon",
+                   label = "p.signif",
+                   method.args = list(alternative = "t")) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  scale_y_continuous(trans = "log10", expand = expansion(mult = c(0, .1))) +
+  scale_x_discrete(labels = c("Non-genetic", "Genetic")) +
+  scale_color_manual(values = pal_val) +
+  xlab("") +
+  ylab("Annual cost ($)") 
+
+df_cl3 <- df_cl3 %>%
+  group_by(status, tmp_yr) %>%
+  summarize(annual_claim = median(annual_claim))
+
+p4 <- df_cl3 %>%
+  ggplot(aes(x = tmp_yr, y = annual_claim, group = status, color = status)) +
+  geom_point(alpha = 1) +
+  geom_smooth(method = "loess", se = TRUE) +
+  scale_y_continuous(trans = "log10") +
+  scale_x_continuous() +
+  scale_color_manual("Group", 
+                     labels = c("Non-genetic", "Genetic"),
+                     values = pal_val) +
+  coord_cartesian(expand = F) +
+  theme_classic() +
+  xlab("Age (years)") +
+  ylab("Median annual cost ($)")
+
+### ASSEMBLE PLOT --------------------------------------------------------------
+plot_final <- cowplot::plot_grid(p2,
+                   p1 + theme(legend.position = "none"),
+                   p3,
+                   p4 + theme(legend.position = "none"),
+                   nrow = 2,
+                   labels = "AUTO")
+
+pdf(file = "FigCost.pdf",
+    width = 8,
+    height = 6)
+
+plot_final
+
+dev.off()
+
+### STATS ----------------------------------------------------------------------
+# median cost
+stats_medianamount <- df_cl2 %>%
+  # differentiate between inpatient and outpatient cost
+  mutate(is_outpatient = ifelse(is.na(AdmissionDate), "Outpatient", "Inpatient")) %>%
+  # cross-sectional: median cost across all encounters
+  group_by(MedicalRecordNumber, status, is_outpatient) %>%
+  summarize(AmountCharged = median(AmountCharged)) %>%
+  filter(is_outpatient == "Outpatient") %>%
+  ungroup() 
+
+stats_medianamount %>%
+  summarize(pval = wilcox.test(AmountCharged ~ status)$p.value)
+
+stats_medianamount %>%
+  group_by(status) %>%
+  summarize(median = median(AmountCharged),
+            iqr = IQR(AmountCharged))
+
+# annual cost
+stats_annualcost <- df_cl2 %>%
+  ungroup() %>%
+  mutate(tmp_yr = round(AgeAtClaim, digits = 0)) %>%
+  group_by(tmp_yr, MedicalRecordNumber) %>%
+  mutate(annual_claim = sum(AmountCharged)) %>%
+  distinct(MedicalRecordNumber, status, tmp_yr, annual_claim) %>%
+  ungroup()
+
+stats_annualcost %>%
+  summarize(pval = wilcox.test(annual_claim ~ status)$p.value)
+
+stats_annualcost %>%
+  group_by(status) %>%
+  summarize(median = median(annual_claim),
+            iqr = IQR(annual_claim))
+
