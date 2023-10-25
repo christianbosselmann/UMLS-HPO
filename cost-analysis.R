@@ -62,7 +62,7 @@ prop_map <- ont_hpo$ancestors %>%
 
 ### DATA -----------------------------------------------------------------------
 # data: all encounters per patient, ages 0-6, grouped by gene positive / negative
-df_raw <- read_csv("/Volumes/CCF/EMR cohort study/Surgery cohort/data/longitudinal_genetic.csv") %>%
+df_raw <- read_csv("$PATH/data/longitudinal_genetic.csv") %>%
   mutate(MedicalRecordNumber = as.character(MedicalRecordNumber))
 
 # by-patient demographic data and age statistics
@@ -81,13 +81,13 @@ df <- df_raw %>%
   na.omit
 
 # strict definition: controls also must have received genetic testing
-df_cpt <- read_csv("/Volumes/CCF/EMR cohort study/Surgery cohort/data/cpts_genetic_all_pts.csv")
+df_cpt <- read_csv("$PATH/data/cpts_genetic_all_pts.csv")
 
 df_strict <- df %>%
   filter(MedicalRecordNumber %in% df_cpt$PAT_MRN_ID | GENEPOS_comb == "Y")
 
 # strict case definition: exclude genetic individuals (cases) with VUS
-df_rev <- readxl::read_excel("/Volumes/CCF/EMR cohort study/Surgery cohort/data/chartreview_2023-04-28.xlsx")
+df_rev <- readxl::read_excel("$PATH/data/chartreview_2023-04-28.xlsx")
 vec_rev <- df_rev %>% filter(is_genetic == FALSE) %>% pull(MedicalRecordNumber)
 
 df_strict <- df_strict %>%
@@ -128,7 +128,7 @@ df <- df %>%
   filter(PatientId %in% df_match1$PatientId)
 
 # data: longitudinal claims and claim amounts for 1335 patients in this study
-df_cl <- readxl::read_excel("/Volumes/CCF/EMR cohort study/Surgery cohort/data/epilepsy_claims_data.xlsx") %>%
+df_cl <- readxl::read_excel("$PATH/data/epilepsy_claims_data.xlsx") %>%
   mutate(AmountCharged = as.numeric(AmountCharged))
 
 # # eliminate duplicate entries
